@@ -14,6 +14,7 @@ const vizFill = document.getElementById('viz-fill');
 const zoomInBtn = document.getElementById('zoom-in');
 const zoomOutBtn = document.getElementById('zoom-out');
 const bgPicker = document.getElementById('bg-picker');
+const bgImgInput = document.getElementById('bg-img-input');
 const danceBtn = document.getElementById('dance-btn');
 const vrmUpload = document.getElementById('vrm-upload');
 
@@ -91,6 +92,13 @@ zoomInBtn.addEventListener('click', () => vrmManager.zoomIn());
 zoomOutBtn.addEventListener('click', () => vrmManager.zoomOut());
 
 bgPicker.addEventListener('input', (e) => vrmManager.setBackground(e.target.value));
+
+bgImgInput.addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        const url = bgImgInput.value.trim();
+        if (url) vrmManager.setBackgroundImage(url);
+    }
+});
 
 danceBtn.addEventListener('click', function() {
     vrmManager.triggerMotion('dance');
