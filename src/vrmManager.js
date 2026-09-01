@@ -104,10 +104,27 @@ function applyAPose() {
     if (!currentVRM || !currentVRM.humanoid) return;
     const h = currentVRM.humanoid;
 
-    // Reset ALL humanoid bone rotations to their default bind pose
+    // Reset first
     h.resetNormalizedPose();
 
-    console.log('[VRM] Reset to default bind pose');
+    const leftUpperArm = h.getNormalizedBoneNode('leftUpperArm');
+    const rightUpperArm = h.getNormalizedBoneNode('rightUpperArm');
+    const leftLowerArm = h.getNormalizedBoneNode('leftLowerArm');
+    const rightLowerArm = h.getNormalizedBoneNode('rightLowerArm');
+
+    // Try OPPOSITE signs - if arms went UP before, this should bring them DOWN
+    if (leftUpperArm) {
+        leftUpperArm.rotation.z = Math.PI / 3;  // ~60 degrees
+    }
+    if (rightUpperArm) {
+        rightUpperArm.rotation.z = -Math.PI / 3;  // ~60 degrees
+    }
+
+    // Natural elbow bend
+    if (leftLowerArm) leftLowerArm.rotation.z = -0.2;
+    if (rightLowerArm) rightLowerArm.rotation.z = 0.2;
+
+    console.log('[VRM] Applied opposite rotation signs');
 }
 
 function saveBaseRotations() {
