@@ -14,8 +14,6 @@ let isDancing = false;
 let danceTimer = 0;
 let danceTimeout = null;
 
-const basePose = {};
-
 export function getVRM() { return currentVRM; }
 
 export function init(el, modelPath) {
@@ -85,11 +83,7 @@ function loadModel(path) {
 
                 const boneNames = Object.keys(vrm.humanoid.normalizedHumanBones);
                 console.log('[VRM] Bones found:', boneNames);
-
-                debugPose(vrm);
-                saveBasePose();
-
-                console.log('[VRM] Debug pose applied');
+                console.log('[VRM] Model loaded, pose applied every frame in loop');
             } else {
                 scene.add(gltf.scene);
             }
@@ -100,85 +94,36 @@ function loadModel(path) {
     );
 }
 
-function debugPose(vrm) {
-    const h = vrm.humanoid;
+/**
+ * Applies natural resting posture (A-Pose) to the VRM model.
+ * MUST be called inside the requestAnimationFrame loop every frame!
+ */
+function applyNaturalRestingPose(vrm) {
+    if (!vrm || !vrm.humanoid) return;
 
-    // Reset everything
-    h.resetNormalizedPose();
+    const leftUpperArm = vrm.humanoid.getNormalizedBoneNode('leftUpperArm');
+    const rightUpperArm = vrm.humanoid.getNormalizedBoneNode('rightUpperArm');
+    const leftLowerArm = vrm.humanoid.getNormalizedBoneNode('leftLowerArm');
+    const rightLowerArm = vrm.humanoid.getNormalizedBoneNode('rightLowerArm');
 
-    // Now test each axis on left arm
-    const leftArm = h.getNormalizedBoneNode('leftUpperArm');
-    const rightArm = h.getNormalizedBoneNode('rightUpperArm');
+    // Reset rotations first to prevent angle accumulation
+    if (leftUpperArm) leftUpperArm.rotation.set(0, 0, 0);
+    if (rightUpperArm) rightUpperArm.rotation.set(0, 0, 0);
 
-    if (leftArm) {
-        console.log('[DEBUG] Testing LEFT arm rotation:');
-        console.log('[DEBUG] Default rotation:', leftArm.rotation.x, leftArm.rotation.y, leftArm.rotation.z);
-        console.log('[DEBUG] Default quaternion:', leftArm.quaternion.x, leftArm.quaternion.y, leftArm.quaternion.z, leftArm.quaternion.w);
-
-        // Try X rotation
-        leftArm.rotation.set(0, 0, 0);
-        leftArm.rotation.x = -1.0;
-        console.log('[DEBUG] After X=-1.0, world position:', leftArm.getWorldPosition(new THREE.Vector3()).toArray());
-        leftArm.rotation.x = 0;
-
-        // Try Y rotation
-        leftArm.rotation.set(0, 0, 0);
-        leftArm.rotation.y = 1.0;
-        console.log('[DEBUG] After Y=1.0, world position:', leftArm.getWorldPosition(new THREE.Vector3()).toArray());
-        leftArm.rotation.y = 0;
-
-        // Try Z rotation
-        leftArm.rotation.set(0, 0, 0);
-        leftArm.rotation.z = -1.0;
-        console.log('[DEBUG] After Z=-1.0, world position:', leftArm.getWorldPosition(new THREE.Vector3()).toArray());
-        leftArm.rotation.z = 0;
+    // Apply exact normalized angles (~57 degrees DOWN towards hips)
+    if (leftUpperArm) {
+        leftUpperArm.rotation.z = -1.0;  // Rotates Left arm DOWN towards body
+        leftUpperArm.rotation.y = 0.15;  // Slight forward tilt for natural look
     }
 
-    // Set a simple T-pose with debug info
-    h.resetNormalizedPose();
-
-    if (leftArm) {
-        console.log('[DEBUG] Left arm world pos (T-pose):', leftArm.getWorldPosition(new THREE.Vector3()).toArray());
-        console.log('[DEBUG] Left arm world dir:', new THREE.Vector3(0, 0, 1).applyQuaternion(leftArm.getWorldQuaternion(new THREE.Quaternion())).toArray());
+    if (rightUpperArm) {
+        rightUpperArm.rotation.z = 1.0;   // Rotates Right arm DOWN towards body
+        rightUpperArm.rotation.y = -0.15; // Slight forward tilt
     }
-    if (rightArm) {
-        console.log('[DEBUG] Right arm world pos (T-pose):', rightArm.getWorldPosition(new THREE.Vector3()).toArray());
-    }
-}
 
-function saveBasePose() {
-    if (!currentVRM || !currentVRM.humanoid) return;
-    const h = currentVRM.humanoid;
-
-    const bones = ['leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
-        'leftHand', 'rightHand', 'spine', 'chest', 'head', 'neck',
-        'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
-        'leftShoulder', 'rightShoulder', 'hips'];
-
-    for (const name of bones) {
-        const bone = h.getNormalizedBoneNode(name);
-        if (bone) {
-            basePose[name] = {
-                x: bone.rotation.x,
-                y: bone.rotation.y,
-                z: bone.rotation.z
-            };
-        }
-    }
-}
-
-function restoreBasePose() {
-    if (!currentVRM || !currentVRM.humanoid) return;
-    const h = currentVRM.humanoid;
-
-    for (const [name, rot] of Object.entries(basePose)) {
-        const bone = h.getNormalizedBoneNode(name);
-        if (bone) {
-            bone.rotation.x = rot.x;
-            bone.rotation.y = rot.y;
-            bone.rotation.z = rot.z;
-        }
-    }
+    // Slight elbow bend so arms don't look like stiff wooden sticks
+    if (leftLowerArm) leftLowerArm.rotation.z = -0.2;
+    if (rightLowerArm) rightLowerArm.rotation.z = 0.2;
 }
 
 function makePlaceholder() {
@@ -206,8 +151,10 @@ function loop() {
     if (currentVRM && currentVRM.humanoid) {
         const h = currentVRM.humanoid;
 
-        restoreBasePose();
+        // STEP 1: Apply natural resting pose EVERY FRAME (before vrm.update)
+        applyNaturalRestingPose(currentVRM);
 
+        // STEP 2: Add idle movements ON TOP of resting pose
         if (!isDancing) {
             const spine = h.getNormalizedBoneNode('spine');
             const chest = h.getNormalizedBoneNode('chest');
@@ -241,6 +188,7 @@ function loop() {
             }
         }
 
+        // STEP 3: Dance movements
         if (isDancing) {
             danceTimer += dt;
             const d = danceTimer;
@@ -272,6 +220,7 @@ function loop() {
             if (rightToes) rightToes.rotation.x += Math.max(0, Math.sin(d * 6 + Math.PI) * 0.15);
         }
 
+        // STEP 4: Blinking
         blink.timer += dt;
         if (blink.timer >= blink.next && blink.phase === 'open') {
             blink.timer = 0;
@@ -289,6 +238,7 @@ function loop() {
             currentVRM.expressionManager.setValue('blink', blink.val);
         }
 
+        // STEP 5: vrm.update() copies normalized bone rotations to raw bones
         currentVRM.update(dt);
     }
 
@@ -332,7 +282,6 @@ export function triggerMotion(name) {
             const p = Math.min((now - start) / dur, 1);
             node.rotation[axis] = from + (target - from) * p;
             if (p < 1) requestAnimationFrame(step);
-            else setTimeout(restoreBasePose, 800);
         })(start);
     };
 
@@ -343,7 +292,6 @@ export function triggerMotion(name) {
     };
 
     if (name === 'dance') { startDance(); return; }
-    restoreBasePose();
 
     switch (name) {
         case 'wave': anim('rightUpperArm', 'z', 2.5, 400); anim('rightLowerArm', 'x', -1.0, 400); break;
