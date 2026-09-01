@@ -14,9 +14,6 @@ let isDancing = false;
 let danceTimer = 0;
 let danceTimeout = null;
 
-// Store A-pose base rotations (the "rest" state we return to)
-const baseRotations = {};
-
 export function getVRM() { return currentVRM; }
 
 export function init(el, modelPath) {
@@ -107,76 +104,20 @@ function applyAPose() {
     if (!currentVRM || !currentVRM.humanoid) return;
     const h = currentVRM.humanoid;
 
-    const leftUpperArm = h.getNormalizedBoneNode('leftUpperArm');
-    const rightUpperArm = h.getNormalizedBoneNode('rightUpperArm');
-    const leftLowerArm = h.getNormalizedBoneNode('leftLowerArm');
-    const rightLowerArm = h.getNormalizedBoneNode('rightLowerArm');
+    // Reset ALL humanoid bone rotations to their default bind pose
+    h.resetNormalizedPose();
 
-    // Reset rotations first to prevent compounding angles
-    if (leftUpperArm) leftUpperArm.rotation.set(0, 0, 0);
-    if (rightUpperArm) rightUpperArm.rotation.set(0, 0, 0);
-
-    // Apply correct negative/positive direction (~55 degrees DOWN)
-    if (leftUpperArm) {
-        leftUpperArm.rotation.z = -Math.PI / 3.1; // Rotates LEFT arm DOWN towards body
-        leftUpperArm.rotation.y = 0.1;             // Slight forward tilt
-    }
-
-    if (rightUpperArm) {
-        rightUpperArm.rotation.z = Math.PI / 3.1;  // Rotates RIGHT arm DOWN towards body
-        rightUpperArm.rotation.y = -0.1;            // Slight forward tilt
-    }
-
-    // Slight natural bend at the elbows
-    if (leftLowerArm) leftLowerArm.rotation.z = -0.15;
-    if (rightLowerArm) rightLowerArm.rotation.z = 0.15;
-
-    // Hands neutral
-    const leftHand = h.getNormalizedBoneNode('leftHand');
-    if (leftHand) { leftHand.rotation.set(0, 0, 0); }
-    const rightHand = h.getNormalizedBoneNode('rightHand');
-    if (rightHand) { rightHand.rotation.set(0, 0, 0); }
-
-    // Head straight
-    const head = h.getNormalizedBoneNode('head');
-    if (head) { head.rotation.set(0, 0, 0); }
-
-    console.log('[VRM] Natural resting pose applied');
+    console.log('[VRM] Reset to default bind pose');
 }
 
 function saveBaseRotations() {
-    if (!currentVRM || !currentVRM.humanoid) return;
-    const h = currentVRM.humanoid;
-
-    const bones = ['leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
-        'leftHand', 'rightHand', 'spine', 'chest', 'head', 'neck',
-        'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg'];
-
-    for (const name of bones) {
-        const bone = h.getNormalizedBoneNode(name);
-        if (bone) {
-            baseRotations[name] = {
-                x: bone.rotation.x,
-                y: bone.rotation.y,
-                z: bone.rotation.z
-            };
-        }
-    }
-    console.log('[VRM] Base rotations saved');
+    // No need to save - we'll just use resetNormalizedPose() to restore
+    console.log('[VRM] Using resetNormalizedPose for base pose');
 }
 
 function restoreBasePose() {
     if (!currentVRM || !currentVRM.humanoid) return;
-    const h = currentVRM.humanoid;
-
-    for (const [name, rot] of Object.entries(baseRotations)) {
-        const bone = h.getNormalizedBoneNode(name);
-        if (bone) {
-            bone.rotation.x = rot.x;
-            bone.rotation.y = rot.y;
-            bone.rotation.z = rot.z;
-        }
-    }
+    currentVRM.humanoid.resetNormalizedPose();
 }
 
 function makePlaceholder() {
