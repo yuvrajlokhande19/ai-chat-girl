@@ -86,10 +86,10 @@ function loadModel(path) {
                 const boneNames = Object.keys(vrm.humanoid.normalizedHumanBones);
                 console.log('[VRM] Bones found:', boneNames);
 
-                applyRestPose();
+                debugPose(vrm);
                 saveBasePose();
 
-                console.log('[VRM] Rest pose applied and saved');
+                console.log('[VRM] Debug pose applied');
             } else {
                 scene.add(gltf.scene);
             }
@@ -100,37 +100,50 @@ function loadModel(path) {
     );
 }
 
-function applyRestPose() {
-    if (!currentVRM || !currentVRM.humanoid) return;
-    const h = currentVRM.humanoid;
+function debugPose(vrm) {
+    const h = vrm.humanoid;
 
-    const bones = ['leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
-        'leftHand', 'rightHand', 'spine', 'chest', 'head', 'neck',
-        'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
-        'leftShoulder', 'rightShoulder', 'hips'];
+    // Reset everything
+    h.resetNormalizedPose();
 
-    for (const name of bones) {
-        const bone = h.getNormalizedBoneNode(name);
-        if (bone) bone.rotation.set(0, 0, 0);
+    // Now test each axis on left arm
+    const leftArm = h.getNormalizedBoneNode('leftUpperArm');
+    const rightArm = h.getNormalizedBoneNode('rightUpperArm');
+
+    if (leftArm) {
+        console.log('[DEBUG] Testing LEFT arm rotation:');
+        console.log('[DEBUG] Default rotation:', leftArm.rotation.x, leftArm.rotation.y, leftArm.rotation.z);
+        console.log('[DEBUG] Default quaternion:', leftArm.quaternion.x, leftArm.quaternion.y, leftArm.quaternion.z, leftArm.quaternion.w);
+
+        // Try X rotation
+        leftArm.rotation.set(0, 0, 0);
+        leftArm.rotation.x = -1.0;
+        console.log('[DEBUG] After X=-1.0, world position:', leftArm.getWorldPosition(new THREE.Vector3()).toArray());
+        leftArm.rotation.x = 0;
+
+        // Try Y rotation
+        leftArm.rotation.set(0, 0, 0);
+        leftArm.rotation.y = 1.0;
+        console.log('[DEBUG] After Y=1.0, world position:', leftArm.getWorldPosition(new THREE.Vector3()).toArray());
+        leftArm.rotation.y = 0;
+
+        // Try Z rotation
+        leftArm.rotation.set(0, 0, 0);
+        leftArm.rotation.z = -1.0;
+        console.log('[DEBUG] After Z=-1.0, world position:', leftArm.getWorldPosition(new THREE.Vector3()).toArray());
+        leftArm.rotation.z = 0;
     }
 
-    const leftUpperArm = h.getNormalizedBoneNode('leftUpperArm');
-    const rightUpperArm = h.getNormalizedBoneNode('rightUpperArm');
-    const leftLowerArm = h.getNormalizedBoneNode('leftLowerArm');
-    const rightLowerArm = h.getNormalizedBoneNode('rightLowerArm');
+    // Set a simple T-pose with debug info
+    h.resetNormalizedPose();
 
-    if (leftUpperArm) {
-        leftUpperArm.rotation.z = -1.0;
-        leftUpperArm.rotation.y = 0.1;
+    if (leftArm) {
+        console.log('[DEBUG] Left arm world pos (T-pose):', leftArm.getWorldPosition(new THREE.Vector3()).toArray());
+        console.log('[DEBUG] Left arm world dir:', new THREE.Vector3(0, 0, 1).applyQuaternion(leftArm.getWorldQuaternion(new THREE.Quaternion())).toArray());
     }
-    if (rightUpperArm) {
-        rightUpperArm.rotation.z = 1.0;
-        rightUpperArm.rotation.y = -0.1;
+    if (rightArm) {
+        console.log('[DEBUG] Right arm world pos (T-pose):', rightArm.getWorldPosition(new THREE.Vector3()).toArray());
     }
-    if (leftLowerArm) leftLowerArm.rotation.z = -0.15;
-    if (rightLowerArm) rightLowerArm.rotation.z = 0.15;
-
-    console.log('[VRM] Rest pose applied');
 }
 
 function saveBasePose() {
@@ -152,7 +165,6 @@ function saveBasePose() {
             };
         }
     }
-    console.log('[VRM] Base pose saved:', basePose);
 }
 
 function restoreBasePose() {
