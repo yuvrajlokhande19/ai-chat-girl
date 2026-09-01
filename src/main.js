@@ -11,6 +11,11 @@ const sendBtn = document.getElementById('send-btn');
 const inputEl = document.getElementById('user-input');
 const chatDrawer = document.getElementById('chat-drawer');
 const vizFill = document.getElementById('viz-fill');
+const zoomInBtn = document.getElementById('zoom-in');
+const zoomOutBtn = document.getElementById('zoom-out');
+const bgPicker = document.getElementById('bg-picker');
+const danceBtn = document.getElementById('dance-btn');
+const vrmUpload = document.getElementById('vrm-upload');
 
 let speechRecog = null;
 let isListening = false;
@@ -51,7 +56,10 @@ async function processText(text) {
 }
 
 async function initApp() {
-    wakeModal.style.display = 'none';
+    // Animate wake modal out
+    wakeModal.classList.add('fade-out');
+    setTimeout(() => { wakeModal.style.display = 'none'; }, 800);
+
     try { vrmManager.init(canvasEl, '/GIRL1.vrm'); } catch (e) { addMsg('Error', e.message, 'msg-sys'); }
     try { await ollama.checkOllamaStatus(statusBadge); } catch (e) {}
     speechRecog = audio.setupSpeechRecognition(
@@ -61,21 +69,48 @@ async function initApp() {
     addMsg('System', 'Chloe ready! Say "dance" or type a message.', 'msg-sys');
 }
 
+// === EVENT LISTENERS ===
+
 startBtn.addEventListener('click', initApp);
+
 micBtn.addEventListener('click', function() {
     if (!speechRecog) { addMsg('Error', 'Use Chrome for voice', 'msg-sys'); return; }
     isListening ? speechRecog.stop() : speechRecog.start();
 });
+
 sendBtn.addEventListener('click', function() {
     const t = inputEl.value.trim();
     if (t) { inputEl.value = ''; processText(t); }
 });
+
 inputEl.addEventListener('keypress', function(e) {
     if (e.key === 'Enter') { const t = inputEl.value.trim(); if (t) { inputEl.value = ''; processText(t); } }
 });
-canvasEl.addEventListener('dragover', function(e) { e.preventDefault(); });
+
+zoomInBtn.addEventListener('click', () => vrmManager.zoomIn());
+zoomOutBtn.addEventListener('click', () => vrmManager.zoomOut());
+
+bgPicker.addEventListener('input', (e) => vrmManager.setBackground(e.target.value));
+
+danceBtn.addEventListener('click', function() {
+    vrmManager.triggerMotion('dance');
+    addMsg('System', 'Dance time!', 'msg-sys');
+});
+
+vrmUpload.addEventListener('change', function(e) {
+    const f = e.target.files[0];
+    if (f && f.name.endsWith('.vrm')) {
+        vrmManager.init(canvasEl, URL.createObjectURL(f));
+        addMsg('System', 'Avatar: ' + f.name, 'msg-sys');
+    }
+});
+
+canvasEl.addEventListener('dragover', (e) => e.preventDefault());
 canvasEl.addEventListener('drop', function(e) {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
-    if (f && f.name.endsWith('.vrm')) { vrmManager.init(canvasEl, URL.createObjectURL(f)); addMsg('System', 'Avatar: ' + f.name, 'msg-sys'); }
+    if (f && f.name.endsWith('.vrm')) {
+        vrmManager.init(canvasEl, URL.createObjectURL(f));
+        addMsg('System', 'Avatar: ' + f.name, 'msg-sys');
+    }
 });

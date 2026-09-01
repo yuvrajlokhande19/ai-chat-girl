@@ -10,27 +10,97 @@
         #canvas-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
         canvas { display: block; }
 
-        /* Wake Modal */
+        /* === WAKE MODAL === */
         #wake-modal {
             position: fixed; inset: 0; z-index: 200;
-            background: rgba(0,0,0,0.97);
+            background: #000;
             display: flex; align-items: center; justify-content: center; flex-direction: column;
+            transition: opacity 0.8s, transform 0.8s;
         }
-        #wake-modal h1 { font-size: 48px; color: #22d3ee; margin-bottom: 16px; font-weight: 700; }
-        #wake-modal p { color: #94a3b8; margin-bottom: 32px; font-size: 16px; }
+        #wake-modal.fade-out {
+            opacity: 0; transform: scale(1.1);
+            pointer-events: none;
+        }
+        #wake-modal h1 {
+            font-size: 52px; font-weight: 700; margin-bottom: 12px;
+            background: linear-gradient(135deg, #22d3ee, #a855f7, #ec4899);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.03); opacity: 0.8; }
+        }
+        #wake-modal p { color: #64748b; margin-bottom: 40px; font-size: 16px; }
         #wake-modal button {
-            padding: 16px 48px; background: #0891b2; color: #fff; border: none;
-            border-radius: 999px; font-size: 18px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+            padding: 18px 56px; background: linear-gradient(135deg, #0891b2, #8b5cf6);
+            color: #fff; border: none; border-radius: 999px;
+            font-size: 18px; font-weight: 700; cursor: pointer; transition: all 0.3s;
+            box-shadow: 0 0 40px rgba(34,211,238,0.3);
         }
-        #wake-modal button:hover { background: #06b6d4; transform: scale(1.05); }
+        #wake-modal button:hover {
+            transform: scale(1.08);
+            box-shadow: 0 0 60px rgba(34,211,238,0.5);
+        }
+        .particles {
+            position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+        }
+        .particle {
+            position: absolute; width: 4px; height: 4px; border-radius: 50%;
+            background: #22d3ee; opacity: 0.3;
+            animation: float linear infinite;
+        }
+        @keyframes float {
+            0% { transform: translateY(100vh) scale(0); opacity: 0; }
+            10% { opacity: 0.4; }
+            90% { opacity: 0.4; }
+            100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+        }
 
-        /* Status */
+        /* === STATUS === */
         #status-badge {
             position: fixed; top: 16px; right: 16px; z-index: 100;
             padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 700;
         }
 
-        /* Bottom bar */
+        /* === TOP CONTROLS === */
+        #top-bar {
+            position: fixed; top: 16px; left: 16px; z-index: 100;
+            display: flex; gap: 6px; align-items: center;
+        }
+        .t-btn {
+            width: 38px; height: 38px; border-radius: 50%; border: none;
+            background: rgba(30,41,59,0.8); backdrop-filter: blur(8px);
+            color: #fff; font-size: 18px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+        }
+        .t-btn:hover { background: rgba(51,65,85,0.95); }
+        #bg-picker {
+            width: 38px; height: 38px; border-radius: 50%; border: 2px solid #475569;
+            cursor: pointer; padding: 0; overflow: hidden; background: transparent;
+        }
+        #bg-picker::-webkit-color-swatch-wrapper { padding: 0; }
+        #bg-picker::-webkit-color-swatch { border: none; border-radius: 50%; }
+        .dance-btn {
+            padding: 8px 18px; border-radius: 999px; border: none;
+            background: linear-gradient(135deg, #ec4899, #8b5cf6);
+            color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+        }
+        .dance-btn:hover { transform: scale(1.05); }
+
+        /* VRM Upload */
+        #vrm-upload {
+            display: none;
+        }
+        .upload-label {
+            width: 38px; height: 38px; border-radius: 50%;
+            background: rgba(30,41,59,0.8); backdrop-filter: blur(8px);
+            color: #fff; font-size: 16px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+        }
+        .upload-label:hover { background: rgba(51,65,85,0.95); }
+
+        /* === BOTTOM BAR === */
         #bottom-bar {
             position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
             background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);
@@ -49,10 +119,8 @@
         #mic-btn svg { width: 22px; height: 22px; color: #4ade80; }
         #mic-btn.active { background: #166534; }
         #mic-btn.active svg { color: #fff; }
-
         #viz-bar { width: 100px; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; flex-shrink: 0; }
         #viz-fill { width: 0%; height: 100%; background: #22d3ee; transition: width 50ms; }
-
         #chat-input { flex: 1; display: flex; gap: 8px; }
         #chat-input input {
             flex: 1; padding: 10px 14px; background: #1e293b; border: 1px solid #334155;
@@ -65,7 +133,7 @@
         }
         #chat-input button:hover { background: #06b6d4; }
 
-        /* Chat drawer */
+        /* === CHAT === */
         #chat-drawer {
             position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%);
             width: 900px; max-width: 95vw; max-height: 300px; z-index: 100;
@@ -84,13 +152,27 @@
 <body>
     <div id="canvas-container"></div>
 
+    <!-- WAKE MODAL -->
     <div id="wake-modal">
-        <h1>WAKE UP CHLOE</h1>
-        <p>Enable microphone to start chatting with your AI companion</p>
-        <button id="start-btn">Activate Microphone</button>
+        <div class="particles" id="particles"></div>
+        <h1>Enter the World</h1>
+        <p>Your AI companion is waiting for you</p>
+        <button id="start-btn">Enter</button>
     </div>
 
     <div id="status-badge" class="bg-red-600 text-white">Checking...</div>
+
+    <!-- TOP CONTROLS -->
+    <div id="top-bar">
+        <button class="t-btn" id="zoom-out" title="Zoom Out">&minus;</button>
+        <button class="t-btn" id="zoom-in" title="Zoom In">+</button>
+        <input type="color" id="bg-picker" value="#000000" title="Background">
+        <label class="upload-label" title="Load VRM Model">
+            &#128193;
+            <input type="file" id="vrm-upload" accept=".vrm">
+        </label>
+        <button class="dance-btn" id="dance-btn">Dance</button>
+    </div>
 
     <div id="chat-drawer"></div>
 
@@ -110,5 +192,19 @@
     </div>
 
     <script type="module" src="./src/main.js"></script>
+    <script>
+        // Particles for wake modal
+        const container = document.getElementById('particles');
+        for (let i = 0; i < 30; i++) {
+            const p = document.createElement('div');
+            p.className = 'particle';
+            p.style.left = Math.random() * 100 + '%';
+            p.style.animationDuration = (3 + Math.random() * 4) + 's';
+            p.style.animationDelay = Math.random() * 5 + 's';
+            p.style.width = p.style.height = (2 + Math.random() * 4) + 'px';
+            p.style.background = ['#22d3ee', '#a855f7', '#ec4899'][Math.floor(Math.random() * 3)];
+            container.appendChild(p);
+        }
+    </script>
 </body>
 </html>

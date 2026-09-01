@@ -10,36 +10,34 @@ let idleTimer = 0;
 let idleAction = null;
 let isDancing = false;
 let danceTimer = 0;
+let danceTimeout = null;
 
 export function getVRM() { return currentVRM; }
 
 export function init(el, modelPath) {
     container = el;
+    if (renderer) { renderer.dispose(); container.innerHTML = ''; }
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
 
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-    camera.position.set(0, 1.2, cameraDistance);
-    camera.lookAt(0, 1.0, 0);
+    camera.position.set(0, 1.0, cameraDistance);
+    camera.lookAt(0, 0.9, 0);
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = 1.1;
     container.appendChild(renderer.domElement);
 
-    // Studio lighting
-    const key = new THREE.DirectionalLight(0xffffff, 1.5);
-    key.position.set(2, 3, 2);
-    scene.add(key);
-    const fill = new THREE.DirectionalLight(0x94a3b8, 0.6);
-    fill.position.set(-2, 2, 1);
-    scene.add(fill);
-    const rim = new THREE.DirectionalLight(0x22d3ee, 2.5);
+    // Lighting
+    scene.add(new THREE.DirectionalLight(0xffffff, 1.6).translateX(2).translateY(3).translateZ(2));
+    scene.add(new THREE.DirectionalLight(0x94a3b8, 0.6).translateX(-2).translateY(2).translateZ(1));
+    const rim = new THREE.DirectionalLight(0x22d3ee, 2.0);
     rim.position.set(0, 1, -3);
     scene.add(rim);
-    scene.add(new THREE.AmbientLight(0x404040, 0.6));
+    scene.add(new THREE.AmbientLight(0x505050, 0.8));
 
     clock = new THREE.Clock();
     loadModel(modelPath);
@@ -47,27 +45,22 @@ export function init(el, modelPath) {
     window.addEventListener('resize', resize);
     window.addEventListener('mousemove', lookAt);
     window.addEventListener('wheel', onZoom, { passive: false });
-    // Touch zoom
-    let lastTouchDist = 0;
+    let lastTouch = 0;
     window.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 2) {
-            lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        }
+        if (e.touches.length === 2) lastTouch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
     });
     window.addEventListener('touchmove', (e) => {
         if (e.touches.length === 2) {
             const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-            targetDistance += (lastTouchDist - d) * 0.005;
-            targetDistance = Math.max(1.0, Math.min(5.0, targetDistance));
-            lastTouchDist = d;
+            targetDistance = Math.max(1.0, Math.min(5.0, targetDistance + (lastTouch - d) * 0.005));
+            lastTouch = d;
         }
     });
 }
 
 function onZoom(e) {
     e.preventDefault();
-    targetDistance += e.deltaY * 0.002;
-    targetDistance = Math.max(1.0, Math.min(5.0, targetDistance));
+    targetDistance = Math.max(1.0, Math.min(5.0, targetDistance + e.deltaY * 0.002));
 }
 
 function loadModel(path) {
@@ -81,7 +74,7 @@ function loadModel(path) {
                 currentVRM = vrm;
                 scene.add(vrm.scene);
                 vrm.scene.rotation.y = Math.PI;
-                console.log('[VRM] Model loaded');
+                console.log('[VRM] Loaded OK');
             } else {
                 scene.add(gltf.scene);
             }
@@ -115,37 +108,114 @@ function loop() {
 
     if (currentVRM && currentVRM.humanoid) {
         const h = currentVRM.humanoid;
+        const getBone = (n) => h.getNormalizedBoneNode(n);
 
-        // --- HUMAN-LIKE IDLE: Weight shift, sway, breathing ---
-        const spine = h.getNormalizedBoneNode('spine');
-        const chest = h.getNormalizedBoneNode('chest');
-        const leftArm = h.getNormalizedBoneNode('leftUpperArm');
-        const rightArm = h.getNormalizedBoneNode('rightUpperArm');
-        const leftLeg = h.getNormalizedBoneNode('leftUpperLeg');
-        const rightLeg = h.getNormalizedBoneNode('rightUpperLeg');
+        // --- NATURAL HUMAN POSTURE ---
+        const spine = getBone('spine');
+        const chest = getBone('chest');
+        const head = getBone('head');
+        const leftArm = getBone('leftUpperArm');
+        const leftForeArm = getBone('leftLowerArm');
+        const rightArm = getBone('rightUpperArm');
+        const rightForeArm = getBone('rightLowerArm');
+        const leftLeg = getBone('leftUpperLeg');
+        const rightLeg = getBone('rightUpperLeg');
+        const leftToes = getBone('leftToes');
+        const rightToes = getBone('rightToes');
 
-        // Natural body sway (weight shift left/right)
-        if (spine) {
-            spine.rotation.z = Math.sin(t * 0.8) * 0.03;
-            spine.rotation.x = Math.sin(t * 1.8) * 0.02; // breathing
-        }
-        if (chest) {
-            chest.rotation.x = Math.sin(t * 1.6) * 0.015;
+        if (!isDancing) {
+            // Spine: gentle sway + breathing
+            if (spine) {
+                spine.rotation.z = Math.sin(t * 0.7) * 0.02;
+                spine.rotation.x = Math.sin(t * 1.8) * 0.02;
+            }
+            if (chest) chest.rotation.x = Math.sin(t * 1.5) * 0.01;
+
+            // Arms: relaxed at sides, slight natural swing
+            if (leftArm) {
+                leftArm.rotation.z = 0.25 + Math.sin(t * 0.6) * 0.03;
+                leftArm.rotation.x = 0.05 + Math.sin(t * 0.4) * 0.02;
+                leftArm.rotation.y = -0.1;
+            }
+            if (leftForeArm) {
+                leftForeArm.rotation.x = -0.15 + Math.sin(t * 0.5) * 0.02;
+            }
+            if (rightArm) {
+                rightArm.rotation.z = -0.25 + Math.sin(t * 0.6 + 0.5) * 0.03;
+                rightArm.rotation.x = 0.05 + Math.sin(t * 0.4 + 0.5) * 0.02;
+                rightArm.rotation.y = 0.1;
+            }
+            if (rightForeArm) {
+                rightForeArm.rotation.x = -0.15 + Math.sin(t * 0.5 + 0.5) * 0.02;
+            }
+
+            // Legs: subtle weight shift
+            if (leftLeg) leftLeg.rotation.x = Math.sin(t * 0.5) * 0.015;
+            if (rightLeg) rightLeg.rotation.x = Math.sin(t * 0.5 + Math.PI) * 0.015;
+            if (leftToes) leftToes.rotation.x = 0;
+            if (rightToes) rightToes.rotation.x = 0;
+
+            // Idle head movements
+            idleTimer += dt;
+            if (idleTimer > 3 + Math.random() * 4) {
+                idleTimer = 0;
+                idleAction = ['look', 'tilt', 'nod'][Math.floor(Math.random() * 3)];
+                setTimeout(() => { idleAction = null; }, 800 + Math.random() * 1200);
+            }
+            if (head && idleAction) {
+                if (idleAction === 'look') {
+                    head.rotation.y = Math.sin(t * 2) * 0.2;
+                    head.rotation.x = Math.cos(t * 1.5) * 0.08;
+                } else if (idleAction === 'tilt') {
+                    head.rotation.z = Math.sin(t * 3) * 0.1;
+                } else if (idleAction === 'nod') {
+                    head.rotation.x = Math.sin(t * 4) * -0.1;
+                }
+            }
         }
 
-        // Arm micro-movements (arms hanging naturally)
-        if (leftArm) {
-            leftArm.rotation.z = 0.3 + Math.sin(t * 0.7) * 0.04;
-            leftArm.rotation.x = Math.sin(t * 0.5) * 0.03;
-        }
-        if (rightArm) {
-            rightArm.rotation.z = -0.3 + Math.sin(t * 0.7 + 1) * 0.04;
-            rightArm.rotation.x = Math.sin(t * 0.5 + 1.5) * 0.03;
-        }
+        // --- DANCE ANIMATION (full body) ---
+        if (isDancing) {
+            danceTimer += dt;
+            const dt2 = danceTimer;
 
-        // Subtle leg weight shift
-        if (leftLeg) leftLeg.rotation.x = Math.sin(t * 0.6) * 0.02;
-        if (rightLeg) rightLeg.rotation.x = Math.sin(t * 0.6 + Math.PI) * 0.02;
+            // Body bounce
+            if (spine) {
+                spine.rotation.z = Math.sin(dt2 * 6) * 0.12;
+                spine.rotation.x = Math.sin(dt2 * 4) * 0.08;
+            }
+            if (chest) chest.rotation.x = Math.sin(dt2 * 3) * 0.06;
+
+            // Head bob
+            if (head) {
+                head.rotation.z = Math.sin(dt2 * 6) * 0.12;
+                head.rotation.x = Math.sin(dt2 * 4) * 0.08;
+            }
+
+            // Arms: rhythmic waving
+            if (leftArm) {
+                leftArm.rotation.z = 0.3 + Math.sin(dt2 * 5) * 1.5;
+                leftArm.rotation.x = Math.cos(dt2 * 4) * 1.0;
+            }
+            if (leftForeArm) leftForeArm.rotation.x = -0.5 + Math.sin(dt2 * 5) * 0.8;
+            if (rightArm) {
+                rightArm.rotation.z = -0.3 + Math.sin(dt2 * 5 + 1) * 1.5;
+                rightArm.rotation.x = Math.cos(dt2 * 4 + 1) * 1.0;
+            }
+            if (rightForeArm) rightForeArm.rotation.x = -0.5 + Math.sin(dt2 * 5 + 1) * 0.8;
+
+            // Legs: stepping / knee bounce
+            if (leftLeg) {
+                leftLeg.rotation.x = Math.sin(dt2 * 6) * 0.3;
+                leftLeg.rotation.z = Math.sin(dt2 * 3) * 0.08;
+            }
+            if (rightLeg) {
+                rightLeg.rotation.x = Math.sin(dt2 * 6 + Math.PI) * 0.3;
+                rightLeg.rotation.z = Math.sin(dt2 * 3 + Math.PI) * 0.08;
+            }
+            if (leftToes) leftToes.rotation.x = Math.max(0, Math.sin(dt2 * 6) * 0.2);
+            if (rightToes) rightToes.rotation.x = Math.max(0, Math.sin(dt2 * 6 + Math.PI) * 0.2);
+        }
 
         // --- BLINKING ---
         blink.timer += dt;
@@ -163,52 +233,6 @@ function loop() {
         }
         if (currentVRM.expressionManager) {
             currentVRM.expressionManager.setValue('blink', blink.val);
-        }
-
-        // --- DANCE ANIMATION ---
-        if (isDancing) {
-            danceTimer += dt;
-            if (spine) spine.rotation.z = Math.sin(danceTimer * 4) * 0.15;
-            if (spine) spine.rotation.x = Math.sin(danceTimer * 3) * 0.1;
-            if (leftArm) {
-                leftArm.rotation.z = 0.3 + Math.sin(danceTimer * 5) * 1.2;
-                leftArm.rotation.x = Math.cos(danceTimer * 4) * 0.8;
-            }
-            if (rightArm) {
-                rightArm.rotation.z = -0.3 + Math.sin(danceTimer * 5 + 1) * 1.2;
-                rightArm.rotation.x = Math.cos(danceTimer * 4 + 1) * 0.8;
-            }
-            // Head bob
-            const head = h.getNormalizedBoneNode('head');
-            if (head) {
-                head.rotation.z = Math.sin(danceTimer * 4) * 0.15;
-                head.rotation.x = Math.sin(danceTimer * 3) * 0.1;
-            }
-        } else {
-            // --- RANDOM IDLE ACTIONS ---
-            idleTimer += dt;
-            if (idleTimer > 3 + Math.random() * 4) {
-                idleTimer = 0;
-                const actions = ['look', 'tilt', 'nod', 'sway'];
-                idleAction = actions[Math.floor(Math.random() * actions.length)];
-                setTimeout(() => { idleAction = null; }, 800 + Math.random() * 1500);
-            }
-
-            if (idleAction) {
-                const head = h.getNormalizedBoneNode('head');
-                if (head) {
-                    if (idleAction === 'look') {
-                        head.rotation.y = Math.sin(t * 2) * 0.2;
-                        head.rotation.x = Math.cos(t * 1.5) * 0.1;
-                    } else if (idleAction === 'tilt') {
-                        head.rotation.z = Math.sin(t * 3) * 0.12;
-                    } else if (idleAction === 'nod') {
-                        head.rotation.x = Math.sin(t * 4) * -0.12;
-                    } else if (idleAction === 'sway') {
-                        head.rotation.y = Math.sin(t * 1.2) * 0.15;
-                    }
-                }
-            }
         }
 
         currentVRM.update(dt);
@@ -229,24 +253,26 @@ function lookAt(e) {
     const my = -(e.clientY / window.innerHeight) * 2 + 1;
     const head = currentVRM.humanoid.getNormalizedBoneNode('head');
     if (head) {
-        head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, mx * 0.25, 0.04);
-        head.rotation.x = THREE.MathUtils.lerp(head.rotation.x, my * 0.15, 0.04);
+        head.rotation.y = THREE.MathUtils.lerp(head.rotation.y, mx * 0.2, 0.04);
+        head.rotation.x = THREE.MathUtils.lerp(head.rotation.x, my * 0.12, 0.04);
     }
 }
 
 export function startDance() {
     isDancing = true;
     danceTimer = 0;
-    console.log('[VRM] Dance started');
-    setTimeout(() => { isDancing = false; console.log('[VRM] Dance ended'); }, 5000);
+    console.log('[VRM] Dance start');
+    if (danceTimeout) clearTimeout(danceTimeout);
+    danceTimeout = setTimeout(() => { isDancing = false; console.log('[VRM] Dance end'); }, 6000);
 }
 
 export function triggerMotion(name) {
     if (!currentVRM || !currentVRM.humanoid) return;
     const h = currentVRM.humanoid;
+    const getBone = (n) => h.getNormalizedBoneNode(n);
 
     const anim = (bone, axis, target, dur) => {
-        const node = h.getNormalizedBoneNode(bone);
+        const node = getBone(bone);
         if (!node) return;
         const start = performance.now();
         const from = node.rotation[axis];
@@ -267,10 +293,10 @@ export function triggerMotion(name) {
     if (name === 'dance') { startDance(); return; }
 
     switch (name) {
-        case 'wave': anim('rightUpperArm', 'z', -1.5, 400); break;
+        case 'wave': anim('rightUpperArm', 'z', -1.8, 400); anim('rightLowerArm', 'x', -0.8, 400); break;
         case 'nod': anim('head', 'x', -0.3, 250); break;
         case 'laugh': face('happy', 1, 600); anim('spine', 'z', 0.1, 150); break;
-        case 'think': anim('head', 'y', 0.4, 500); break;
+        case 'think': anim('head', 'y', 0.4, 500); anim('rightUpperArm', 'z', -0.8, 300); break;
         case 'shrug': anim('leftUpperArm', 'x', 0.5, 300); anim('rightUpperArm', 'x', 0.5, 300); break;
         case 'tilt_head': anim('head', 'z', 0.4, 350); break;
         case 'surprise': face('surprised', 1, 500); anim('head', 'x', -0.25, 200); break;
@@ -278,21 +304,9 @@ export function triggerMotion(name) {
 }
 
 export function setMouth(v) {
-    if (currentVRM && currentVRM.expressionManager) {
-        currentVRM.expressionManager.setValue('aa', v);
-    }
+    if (currentVRM && currentVRM.expressionManager) currentVRM.expressionManager.setValue('aa', v);
 }
 export function resetMouth() { setMouth(0); }
-
-export function zoomIn() {
-    targetDistance = Math.max(1.0, targetDistance - 0.4);
-    console.log('[VRM] Zoom in:', targetDistance.toFixed(1));
-}
-export function zoomOut() {
-    targetDistance = Math.min(5.0, targetDistance + 0.4);
-    console.log('[VRM] Zoom out:', targetDistance.toFixed(1));
-}
-export function setBackground(hex) {
-    if (scene) scene.background = new THREE.Color(hex);
-    console.log('[VRM] Background:', hex);
-}
+export function zoomIn() { targetDistance = Math.max(1.0, targetDistance - 0.4); }
+export function zoomOut() { targetDistance = Math.min(5.0, targetDistance + 0.4); }
+export function setBackground(hex) { if (scene) scene.background = new THREE.Color(hex); }
