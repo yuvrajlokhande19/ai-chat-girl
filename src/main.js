@@ -11,10 +11,6 @@ const sendBtn = document.getElementById('send-btn');
 const inputEl = document.getElementById('user-input');
 const chatDrawer = document.getElementById('chat-drawer');
 const vizFill = document.getElementById('viz-fill');
-const zoomInBtn = document.getElementById('zoom-in');
-const zoomOutBtn = document.getElementById('zoom-out');
-const bgPicker = document.getElementById('bg-picker');
-const danceBtn = document.getElementById('dance-btn');
 
 let speechRecog = null;
 let isListening = false;
@@ -35,10 +31,7 @@ async function processText(text) {
     if (isListening && speechRecog) speechRecog.stop();
     const think = addMsg('Chloe', 'Thinking...', 'msg-sys');
 
-    // Check for dance command locally
-    if (text.toLowerCase().includes('dance')) {
-        vrmManager.triggerMotion('dance');
-    }
+    if (text.toLowerCase().includes('dance')) vrmManager.triggerMotion('dance');
 
     try {
         const r = await ollama.chatWithOllama(text);
@@ -65,41 +58,21 @@ async function initApp() {
         function(t) { processText(t); },
         function(s) { isListening = (s === 'listening'); micBtn.classList.toggle('active', isListening); }
     );
-    addMsg('System', 'Chloe ready! Say "dance" or click the Dance button!', 'msg-sys');
+    addMsg('System', 'Chloe ready! Say "dance" or type a message.', 'msg-sys');
 }
 
 startBtn.addEventListener('click', initApp);
-
 micBtn.addEventListener('click', function() {
     if (!speechRecog) { addMsg('Error', 'Use Chrome for voice', 'msg-sys'); return; }
     isListening ? speechRecog.stop() : speechRecog.start();
 });
-
 sendBtn.addEventListener('click', function() {
     const t = inputEl.value.trim();
     if (t) { inputEl.value = ''; processText(t); }
 });
-
 inputEl.addEventListener('keypress', function(e) {
     if (e.key === 'Enter') { const t = inputEl.value.trim(); if (t) { inputEl.value = ''; processText(t); } }
 });
-
-// Zoom buttons
-zoomInBtn.addEventListener('click', function() { vrmManager.zoomIn(); });
-zoomOutBtn.addEventListener('click', function() { vrmManager.zoomOut(); });
-
-// Background color
-bgPicker.addEventListener('input', function(e) {
-    vrmManager.setBackground(e.target.value);
-});
-
-// Dance button
-danceBtn.addEventListener('click', function() {
-    vrmManager.triggerMotion('dance');
-    addMsg('System', 'Dance time!', 'msg-sys');
-});
-
-// Drag & drop VRM
 canvasEl.addEventListener('dragover', function(e) { e.preventDefault(); });
 canvasEl.addEventListener('drop', function(e) {
     e.preventDefault();
