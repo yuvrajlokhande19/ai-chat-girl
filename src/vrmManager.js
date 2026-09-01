@@ -107,23 +107,29 @@ function applyAPose() {
     if (!currentVRM || !currentVRM.humanoid) return;
     const h = currentVRM.humanoid;
 
-    // === THE KEY FIX: Set rotation directly on normalized bone nodes ===
-    // This is the official way per three-vrm examples
+    const leftUpperArm = h.getNormalizedBoneNode('leftUpperArm');
+    const rightUpperArm = h.getNormalizedBoneNode('rightUpperArm');
+    const leftLowerArm = h.getNormalizedBoneNode('leftLowerArm');
+    const rightLowerArm = h.getNormalizedBoneNode('rightLowerArm');
 
-    // Left upper arm: rotate -90deg around Z to bring down from T-pose
-    const leftArm = h.getNormalizedBoneNode('leftUpperArm');
-    if (leftArm) { leftArm.rotation.z = -Math.PI / 2; }  // -1.5708
+    // Reset rotations first to prevent compounding angles
+    if (leftUpperArm) leftUpperArm.rotation.set(0, 0, 0);
+    if (rightUpperArm) rightUpperArm.rotation.set(0, 0, 0);
 
-    // Right upper arm: rotate +90deg around Z to bring down
-    const rightArm = h.getNormalizedBoneNode('rightUpperArm');
-    if (rightArm) { rightArm.rotation.z = Math.PI / 2; }  // 1.5708
+    // Apply correct negative/positive direction (~55 degrees DOWN)
+    if (leftUpperArm) {
+        leftUpperArm.rotation.z = -Math.PI / 3.1; // Rotates LEFT arm DOWN towards body
+        leftUpperArm.rotation.y = 0.1;             // Slight forward tilt
+    }
 
-    // Slight elbow bend
-    const leftForeArm = h.getNormalizedBoneNode('leftLowerArm');
-    if (leftForeArm) { leftForeArm.rotation.x = -0.3; }
+    if (rightUpperArm) {
+        rightUpperArm.rotation.z = Math.PI / 3.1;  // Rotates RIGHT arm DOWN towards body
+        rightUpperArm.rotation.y = -0.1;            // Slight forward tilt
+    }
 
-    const rightForeArm = h.getNormalizedBoneNode('rightLowerArm');
-    if (rightForeArm) { rightForeArm.rotation.x = -0.3; }
+    // Slight natural bend at the elbows
+    if (leftLowerArm) leftLowerArm.rotation.z = -0.15;
+    if (rightLowerArm) rightLowerArm.rotation.z = 0.15;
 
     // Hands neutral
     const leftHand = h.getNormalizedBoneNode('leftHand');
@@ -135,7 +141,7 @@ function applyAPose() {
     const head = h.getNormalizedBoneNode('head');
     if (head) { head.rotation.set(0, 0, 0); }
 
-    console.log('[VRM] A-pose bones set');
+    console.log('[VRM] Natural resting pose applied');
 }
 
 function saveBaseRotations() {
