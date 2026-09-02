@@ -295,11 +295,92 @@ bgImageUpload.addEventListener('change', (e) => {
     }
 });
 
-// Voice Selection
-voiceSelect.addEventListener('change', (e) => {
-    audio.setVoiceProfile(e.target.value);
-    addMsg('System', `Voice: ${e.target.selectedOptions[0].text}`, 'msg-sys');
+// Voice Engine Selection
+const voiceEngineSelect = document.getElementById('voice-engine');
+const voiceSelectContainer = document.getElementById('voice-select-container');
+const voiceTestBtn = document.getElementById('voice-test-btn');
+const voiceStopBtn = document.getElementById('voice-stop-btn');
+const voiceTestText = document.getElementById('voice-test-text');
+const voiceTestStatus = document.getElementById('voice-test-status');
+
+let currentVoiceEngine = 'edge';
+
+// Populate voice options based on selected engine
+function populateVoiceOptions(engine) {
+    voiceSelectContainer.innerHTML = '';
+    const select = document.createElement('select');
+    select.id = 'voice-select';
+    select.style.cssText = 'padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;width:100%;';
+    
+    const profiles = audio.getAllVoiceProfiles();
+    Object.entries(profiles).forEach(([key, v]) => {
+        if (v.engine === engine || (engine === 'browser' && v.engine === 'browser')) {
+            const opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = v.name + (v.desc ? ` - ${v.desc}` : '');
+            select.appendChild(opt);
+        }
+    });
+    voiceSelectContainer.appendChild(select);
+    
+    // Add change listener
+    select.addEventListener('change', (e) => {
+        audio.setVoiceProfile(e.target.value);
+        addMsg('System', `Voice: ${e.target.selectedOptions[0].text}`, 'msg-sys');
+    });
+    
+    // Set default based on engine
+    if (engine === 'edge') select.value = 'edge-neerja-expressive';
+    else if (engine === 'kokoro') select.value = 'kokoro-bella';
+    else select.value = 'browser-female';
+}
+
+// Engine selector
+voiceEngineSelect.addEventListener('change', (e) => {
+    currentVoiceEngine = e.target.value;
+    populateVoiceOptions(currentVoiceEngine);
+    audio.setVoiceProfile(currentVoiceEngine === 'edge' ? 'edge-neerja-expressive' : 
+                          currentVoiceEngine === 'kokoro' ? 'kokoro-bella' : 'browser-female');
 });
+
+// Initial population
+populateVoiceOptions(currentVoiceEngine);
+
+// Voice Test Button
+voiceTestBtn.addEventListener('click', async () => {
+    const select = document.getElementById('voice-select');
+    const profile = select.value;
+    const text = voiceTestText.value.trim() || "Hello, am Sia! Main aapke liye kya karu?";
+    
+    voiceTestBtn.disabled = true;
+    voiceTestBtn.textContent = '⏳ Playing...';
+    voiceTestStatus.textContent = 'Playing sample...';
+    voiceTestStatus.style.color = 'var(--accent)';
+    
+    try {
+        await audio.testVoice(profile, text);
+        voiceTestStatus.textContent = 'Sample played successfully!';
+        voiceTestStatus.style.color = 'var(--green)';
+    } catch (e) {
+        voiceTestStatus.textContent = 'Error: ' + e.message;
+        voiceTestStatus.style.color = '#ef4444';
+    } finally {
+        voiceTestBtn.disabled = false;
+        voiceTestBtn.textContent = '▶ Play Sample';
+    }
+});
+
+// Voice Stop Button
+voiceStopBtn.addEventListener('click', () => {
+    audio.stopSpeaking();
+    voiceTestBtn.disabled = false;
+    voiceTestBtn.textContent = '▶ Play Sample';
+    voiceTestStatus.textContent = 'Stopped';
+    voiceTestStatus.style.color = 'var(--orange)';
+});
+
+// Initialize voice options
+populateVoiceOptions(currentVoiceEngine);
 
 // VRM Upload
 vrmUpload.addEventListener('change', (e) => {

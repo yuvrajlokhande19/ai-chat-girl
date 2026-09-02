@@ -432,21 +432,38 @@
             <div class="menu-divider"></div>
             <div class="menu-section">
                 <div class="menu-label">Voice</div>
-                <div class="menu-item">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2"/>
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2"/>
-                        <line x1="12" y1="19" x2="12" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                        <line x1="8" y1="22" x2="16" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                    <span style="flex:1;text-align:left;font-size:13px;">Voice Settings</span>
-                    <select id="voice-select" style="padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;">
-                        <option value="indian-teen-hinglish">Indian Teen Girl (Hindi + GenZ)</option>
-                        <option value="indian-teen-cute">Indian Teen Girl (Cute / High Pitch)</option>
-                        <option value="indian-teen-hindi">Indian Teen Girl (Pure Hindi)</option>
-                        <option value="indian-teen-en">Indian Teen Girl (English)</option>
-                        <option value="browser-female">Browser Female (Fallback)</option>
-                    </select>
+                <div class="menu-item" style="flex-direction:column;gap:8px;align-items:stretch;">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" stroke-width="2"/>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="currentColor" stroke-width="2"/>
+                            <line x1="12" y1="19" x2="12" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <line x1="8" y1="22" x2="16" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        <span style="flex:1;text-align:left;font-size:13px;">Voice Engine</span>
+                        <select id="voice-engine" style="padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;">
+                            <option value="edge">Edge TTS (Microsoft Neural, Best Quality)</option>
+                            <option value="kokoro">Kokoro (Local, Fast)</option>
+                            <option value="browser">Browser SpeechSynthesis (Fallback)</option>
+                        </select>
+                    </div>
+                    <div id="voice-select-container">
+                        <!-- Voice options populated by JS based on engine -->
+                    </div>
+                    <div style="margin-top:8px;padding:10px;background:rgba(30,41,59,0.4);border-radius:8px;border:1px solid var(--glass-border);">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" style="width:18px;height:18px;color:var(--accent);">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            <span style="font-size:12px;font-weight:600;color:var(--text);">Test Voice Sample</span>
+                        </div>
+                        <input type="text" id="voice-test-text" value="Hello, am Sia! Main aapke liye kya karu?" placeholder="Custom test text..." style="width:100%;padding:8px 12px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;font-size:12px;">
+                        <div style="display:flex;gap:8px;margin-top:8px;">
+                            <button id="voice-test-btn" class="menu-btn-small" style="flex:1;padding:8px 16px;background:var(--accent);color:#0f172a;border:none;border-radius:8px;font-weight:600;font-size:12px;cursor:pointer;">▶ Play Sample</button>
+                            <button id="voice-stop-btn" class="menu-btn-small" style="padding:8px 16px;background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:8px;font-weight:600;font-size:12px;cursor:pointer;">⏹ Stop</button>
+                        </div>
+                        <div id="voice-test-status" style="margin-top:6px;font-size:11px;color:var(--text-muted);min-height:16px;"></div>
+                    </div>
                 </div>
             </div>
         </div>
