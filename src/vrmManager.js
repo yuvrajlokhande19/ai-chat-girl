@@ -14,26 +14,60 @@ let idleActionTimer = 0;
 let isDancing = false;
 let danceTimer = 0;
 let danceTimeout = null;
+let mouseTarget = { x: 0, y: 0 };
+let lookAtWeight = 0;
 
-// Base A-pose from Animaze reference: 70° upper arm, 10° lower arm
-const BASE_POSE = {
-    leftUpperArm: { z: 1.22, y: 0.1, x: 0 },
-    rightUpperArm: { z: -1.22, y: -0.1, x: 0 },
-    leftLowerArm: { z: -0.17, x: 0 },
-    rightLowerArm: { z: 0.17, x: 0 },
-    leftHand: { z: 0.15, y: -0.05 },  // Relaxed hand curl
-    rightHand: { z: -0.15, y: 0.05 },
-    head: { x: 0, y: 0, z: 0 },
-    spine: { x: 0, z: 0 },
-    chest: { x: 0, scale: 1 },
-    upperChest: { x: 0, scale: 1 },
-    hips: { z: 0, x: 0 },
+const JOINT_LIMITS = {
+    leftShoulder:  { x: [-0.5, 0.5], y: [-0.3, 0.3], z: [-0.3, 0.3] },
+    rightShoulder: { x: [-0.5, 0.5], y: [-0.3, 0.3], z: [-0.3, 0.3] },
+    leftUpperArm:  { x: [-1.5, 0.5], y: [-0.5, 0.5], z: [0.5, 1.8] },
+    rightUpperArm: { x: [-1.5, 0.5], y: [-0.5, 0.5], z: [-1.8, -0.5] },
+    leftLowerArm:  { x: [-0.2, 2.6], y: [-0.3, 0.3], z: [-0.5, 0.2] },
+    rightLowerArm: { x: [-0.2, 2.6], y: [-0.3, 0.3], z: [-0.2, 0.5] },
+    leftHand:      { x: [-0.5, 0.5], y: [-0.4, 0.4], z: [-0.3, 0.3] },
+    rightHand:     { x: [-0.5, 0.5], y: [-0.4, 0.4], z: [-0.3, 0.3] },
+    head:          { x: [-0.5, 0.3], y: [-0.8, 0.8], z: [-0.3, 0.3] },
+    neck:          { x: [-0.4, 0.2], y: [-0.5, 0.5], z: [-0.2, 0.2] },
+    spine:         { x: [-0.2, 0.1], y: [-0.1, 0.1], z: [-0.1, 0.1] },
+    chest:         { x: [-0.15, 0.05], y: [-0.05, 0.05], z: [-0.05, 0.05] },
+    upperChest:    { x: [-0.1, 0.05], y: [-0.03, 0.03], z: [-0.03, 0.03] },
+    hips:          { x: [-0.2, 0.1], y: [-0.1, 0.1], z: [-0.1, 0.1] },
 };
 
-const IDLE_ACTIONS = ['breathe', 'hairTouch', 'dressGlance', 'weightShift', 'lookAround', 'fidget'];
+const BASE_POSE = {
+    leftShoulder:  { x: 0, y: 0, z: 0 },
+    rightShoulder: { x: 0, y: 0, z: 0 },
+    leftUpperArm:  { x: 0, y: 0.1, z: 1.22 },
+    rightUpperArm: { x: 0, y: -0.1, z: -1.22 },
+    leftLowerArm:  { x: 0, y: 0, z: -0.17 },
+    rightLowerArm: { x: 0, y: 0, z: 0.17 },
+    leftHand:      { x: 0, y: -0.05, z: 0.15 },
+    rightHand:     { x: 0, y: 0.05, z: -0.15 },
+    head:          { x: 0, y: 0, z: 0 },
+    neck:          { x: 0, y: 0, z: 0 },
+    spine:         { x: 0, y: 0, z: 0 },
+    chest:         { x: 0, y: 0, z: 0, scale: 1 },
+    upperChest:    { x: 0, y: 0, z: 0, scale: 1 },
+    hips:          { x: 0, y: 0, z: 0 },
+};
+
+const IDLE_ACTIONS = ['breathe', 'hairTouch', 'dressCheck', 'weightShift', 'lookAround', 'fidget'];
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function easeInOut(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+function applyJointLimits(boneName, rot) {
+    const limits = JOINT_LIMITS[boneName];
+    if (!limits) return rot;
+    return {
+        x: clamp(rot.x, limits.x[0], limits.x[1]),
+        y: clamp(rot.y, limits.y[0], limits.y[1]),
+        z: clamp(rot.z, limits.z[0], limits.z[1]),
+    };
+}
+
+function getBone(h, name) { return h.getNormalizedBoneNode(name); }
 
 export function getVRM() { return currentVRM; }
 
@@ -104,7 +138,7 @@ function loadModel(path) {
 
                 const boneNames = Object.keys(vrm.humanoid.normalizedHumanBones);
                 console.log('[VRM] Bones found:', boneNames);
-                console.log('[VRM] Model ready with Animaze-style A-pose');
+                console.log('[VRM] Model ready with biomechanical joint limits');
             } else {
                 scene.add(gltf.scene);
             }
@@ -140,31 +174,33 @@ function loop() {
     if (currentVRM && currentVRM.humanoid) {
         const h = currentVRM.humanoid;
 
-        // Start with base A-pose
         const pose = JSON.parse(JSON.stringify(BASE_POSE));
 
-        // === ALWAYS: Breathing (Animaze style - scale chest/upperChest) ===
-        const breath = 1 + Math.sin(t * 1.8) * 0.025; // 1.0 to 1.025
+        // === ALWAYS: Breathing (scale-based like Animaze) ===
+        const breath = 1 + Math.sin(t * 1.8) * 0.025;
         pose.chest.scale = breath;
         pose.upperChest.scale = breath;
         pose.chest.x += Math.sin(t * 1.8) * 0.005;
 
-        // === ALWAYS: Subtle arm sway ===
-        pose.leftUpperArm.x += Math.sin(t * 0.5) * 0.015;
+        // === ALWAYS: Subtle micro-movements ===
+        pose.leftUpperArm.x  += Math.sin(t * 0.5) * 0.015;
         pose.rightUpperArm.x += Math.sin(t * 0.5 + 1) * 0.015;
+        pose.leftHand.z      += Math.sin(t * 0.7) * 0.02;
+        pose.rightHand.z     += Math.sin(t * 0.7 + 0.5) * 0.02;
+        pose.head.y          += Math.sin(t * 0.3) * 0.01;
+        pose.head.x          += Math.cos(t * 0.25) * 0.005;
 
-        // === ALWAYS: Hand micro-movement (relaxed curl) ===
-        pose.leftHand.z += Math.sin(t * 0.7) * 0.02;
-        pose.rightHand.z += Math.sin(t * 0.7 + 0.5) * 0.02;
+        // === Mouse look-at (face follows cursor) ===
+        lookAtWeight += (1 - lookAtWeight) * 0.05;
+        pose.head.y += mouseTarget.x * 0.35 * lookAtWeight;
+        pose.head.x += mouseTarget.y * 0.25 * lookAtWeight;
+        pose.neck.y = pose.head.y * 0.6;
+        pose.neck.x = pose.head.x * 0.5;
 
-        // === ALWAYS: Head micro-movement ===
-        pose.head.y += Math.sin(t * 0.3) * 0.01;
-        pose.head.x += Math.cos(t * 0.25) * 0.005;
-
-        // === Random idle actions ===
+        // === Random idle actions (every 5-15s) ===
         if (!isDancing) {
             idleTimer += dt;
-            if (idleTimer > 5 + Math.random() * 8) {
+            if (idleTimer > 5 + Math.random() * 10) {
                 idleTimer = 0;
                 idleAction = IDLE_ACTIONS[Math.floor(Math.random() * IDLE_ACTIONS.length)];
                 idleActionTimer = 0;
@@ -173,81 +209,97 @@ function loop() {
 
             if (idleAction) {
                 idleActionTimer += dt;
-                const at = easeInOut(Math.min(idleActionTimer / 1.2, 1));
+                const at = easeInOut(Math.min(idleActionTimer / 1.5, 1));
 
                 switch (idleAction) {
                     case 'hairTouch':
-                        // Right hand raises toward head area - natural gesture
+                        // Right hand to hair - coordinated shoulder/elbow/wrist
                         if (at < 1) {
-                            pose.rightUpperArm.z = lerp(-1.22, -1.8, at);
-                            pose.rightUpperArm.x = lerp(0, 0.3, at);
-                            pose.rightLowerArm.x = lerp(0, -0.8, at);
-                            pose.rightHand.z = lerp(-0.15, 0.1, at);
+                            pose.rightShoulder.x = lerp(0, -0.2, at);
+                            pose.rightUpperArm.z = lerp(-1.22, -1.6, at);
+                            pose.rightUpperArm.x = lerp(0, 0.4, at);
+                            pose.rightLowerArm.x = lerp(0, -1.0, at);
+                            pose.rightHand.z = lerp(-0.15, 0.2, at);
                             pose.head.z = lerp(0, 0.05, at);
                         } else {
-                            pose.rightUpperArm.z = -1.8;
-                            pose.rightUpperArm.x = 0.3;
-                            pose.rightLowerArm.x = -0.8;
-                            pose.rightHand.z = 0.1;
+                            pose.rightShoulder.x = -0.2 + Math.sin(t * 0.5) * 0.02;
+                            pose.rightUpperArm.z = -1.6;
+                            pose.rightUpperArm.x = 0.4;
+                            pose.rightLowerArm.x = -1.0;
+                            pose.rightHand.z = 0.2;
                             pose.head.z = 0.05;
+                        }
+                        if (idleActionTimer > 5) { idleAction = null; }
+                        break;
+
+                    case 'dressCheck':
+                        // Head down, slight lean, left hand near hip
+                        if (at < 1) {
+                            pose.head.x = lerp(0, 0.25, at);
+                            pose.neck.x = lerp(0, 0.12, at);
+                            pose.spine.x = lerp(0, 0.08, at);
+                            pose.leftUpperArm.y = lerp(0.1, 0.2, at);
+                            pose.leftLowerArm.z = lerp(-0.17, -0.3, at);
+                            pose.leftHand.z = lerp(0.15, 0.25, at);
+                        } else {
+                            pose.head.x = 0.25 + Math.sin(t * 0.3) * 0.02;
+                            pose.neck.x = 0.12;
+                            pose.spine.x = 0.08;
+                            pose.leftUpperArm.y = 0.2;
                         }
                         if (idleActionTimer > 4) { idleAction = null; }
                         break;
 
-                    case 'dressGlance':
-                        // Head tilts down and slightly sideways to look at dress
-                        if (at < 1) {
-                            pose.head.x = lerp(0, 0.2, at);
-                            pose.head.z = lerp(0, 0.08, at);
-                            pose.spine.x = lerp(0, 0.06, at);
-                            // Left arm slightly forward as if checking
-                            pose.leftUpperArm.y = lerp(0.1, 0.25, at);
-                        } else {
-                            pose.head.x = 0.2 + Math.sin(t * 0.4) * 0.02;
-                            pose.head.z = 0.08;
-                            pose.spine.x = 0.06;
-                            pose.leftUpperArm.y = 0.25;
-                        }
-                        if (idleActionTimer > 3.5) { idleAction = null; }
-                        break;
-
                     case 'weightShift':
-                        // Subtle hip sway, counter-balance head
-                        pose.hips.z = Math.sin(t * 0.6) * 0.05;
-                        pose.head.z = -Math.sin(t * 0.6) * 0.03;
-                        pose.leftUpperArm.z = lerp(1.22, 1.15, 0.5 + Math.sin(t * 0.7) * 0.5);
-                        pose.rightUpperArm.z = lerp(-1.22, -1.15, 0.5 + Math.sin(t * 0.7 + 1) * 0.5);
-                        if (idleActionTimer > 5) { idleAction = null; }
-                        break;
-
-                    case 'lookAround':
-                        // Slow natural head scan
-                        pose.head.y = Math.sin(t * 0.4) * 0.18;
-                        pose.head.x = Math.cos(t * 0.3) * 0.06;
+                        // Hip sway with full body counter-balance
+                        pose.hips.z = Math.sin(t * 0.5) * 0.06;
+                        pose.hips.x = Math.cos(t * 0.5) * 0.02;
+                        pose.head.z = -Math.sin(t * 0.5) * 0.04;
+                        pose.neck.z = -Math.sin(t * 0.5) * 0.02;
+                        pose.leftUpperArm.z = lerp(1.22, 1.1, 0.5 + Math.sin(t * 0.6) * 0.5);
+                        pose.rightUpperArm.z = lerp(-1.22, -1.1, 0.5 + Math.sin(t * 0.6 + 1) * 0.5);
                         if (idleActionTimer > 6) { idleAction = null; }
                         break;
 
+                    case 'lookAround':
+                        // Slow head scan with neck coordination
+                        pose.head.y = Math.sin(t * 0.35) * 0.4;
+                        pose.head.x = Math.cos(t * 0.25) * 0.1;
+                        pose.neck.y = pose.head.y * 0.7;
+                        pose.neck.x = pose.head.x * 0.6;
+                        pose.leftUpperArm.z = lerp(1.22, 1.15, Math.sin(t * 0.2) * 0.5 + 0.5);
+                        pose.rightUpperArm.z = lerp(-1.22, -1.15, Math.sin(t * 0.2 + 1) * 0.5 + 0.5);
+                        if (idleActionTimer > 8) { idleAction = null; }
+                        break;
+
                     case 'fidget':
-                        // Small hand/arm adjustment - like fixing sleeve
-                        pose.leftHand.z = lerp(0.15, 0.25, Math.sin(t * 4) * 0.5 + 0.5);
-                        pose.rightHand.z = lerp(-0.15, -0.25, Math.sin(t * 4 + 1) * 0.5 + 0.5);
-                        if (idleActionTimer > 3) { idleAction = null; }
+                        // Small coordinated hand/wrist adjustments
+                        pose.leftHand.z = lerp(0.15, 0.3, Math.sin(t * 3) * 0.5 + 0.5);
+                        pose.leftHand.x = Math.sin(t * 2.5) * 0.05;
+                        pose.rightHand.z = lerp(-0.15, -0.3, Math.sin(t * 3 + 1) * 0.5 + 0.5);
+                        pose.rightHand.x = Math.sin(t * 2.5 + 1) * 0.05;
+                        pose.leftLowerArm.z = lerp(-0.17, -0.25, Math.sin(t * 2) * 0.5 + 0.5);
+                        pose.rightLowerArm.z = lerp(0.17, 0.25, Math.sin(t * 2 + 1) * 0.5 + 0.5);
+                        if (idleActionTimer > 4) { idleAction = null; }
                         break;
                 }
             }
         }
 
-        // === Apply pose with smooth interpolation ===
-        const speed = 0.1;
+        // === Apply pose with joint limits ===
+        const speed = 0.08;
         if (currentVRM && currentVRM.humanoid) {
             const applyBone = (name, target) => {
-                const bone = h.getNormalizedBoneNode(name);
+                const bone = getBone(h, name);
                 if (!bone) return;
-                if (target.x !== undefined) bone.rotation.x += (target.x - bone.rotation.x) * speed;
-                if (target.y !== undefined) bone.rotation.y += (target.y - bone.rotation.y) * speed;
-                if (target.z !== undefined) bone.rotation.z += (target.z - bone.rotation.z) * speed;
+                const limited = applyJointLimits(name, target);
+                if (limited.x !== undefined) bone.rotation.x += (limited.x - bone.rotation.x) * speed;
+                if (limited.y !== undefined) bone.rotation.y += (limited.y - bone.rotation.y) * speed;
+                if (limited.z !== undefined) bone.rotation.z += (limited.z - bone.rotation.z) * speed;
             };
 
+            applyBone('leftShoulder', pose.leftShoulder);
+            applyBone('rightShoulder', pose.rightShoulder);
             applyBone('leftUpperArm', pose.leftUpperArm);
             applyBone('rightUpperArm', pose.rightUpperArm);
             applyBone('leftLowerArm', pose.leftLowerArm);
@@ -255,14 +307,14 @@ function loop() {
             applyBone('leftHand', pose.leftHand);
             applyBone('rightHand', pose.rightHand);
             applyBone('head', pose.head);
+            applyBone('neck', pose.neck);
             applyBone('spine', pose.spine);
             applyBone('chest', pose.chest);
             applyBone('upperChest', pose.upperChest);
             applyBone('hips', pose.hips);
 
-            // Apply breathing scale
-            const chestBone = h.getNormalizedBoneNode('chest');
-            const upperChestBone = h.getNormalizedBoneNode('upperChest');
+            const chestBone = getBone(h, 'chest');
+            const upperChestBone = getBone(h, 'upperChest');
             if (chestBone) chestBone.scale.setScalar(pose.chest.scale);
             if (upperChestBone) upperChestBone.scale.setScalar(pose.upperChest.scale);
         }
@@ -301,11 +353,9 @@ function onMouseMove(e) {
     if (!currentVRM || !currentVRM.humanoid || isDancing) return;
     const mx = (e.clientX / window.innerWidth) * 2 - 1;
     const my = -(e.clientY / window.innerHeight) * 2 + 1;
-    const head = currentVRM.humanoid.getNormalizedBoneNode('head');
-    if (head) {
-        head.rotation.y += mx * 0.003;
-        head.rotation.x += my * 0.002;
-    }
+    mouseTarget.x = mx;
+    mouseTarget.y = my;
+    lookAtWeight = 0;
 }
 
 export function startDance() {
