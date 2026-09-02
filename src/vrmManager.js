@@ -121,19 +121,20 @@ function loop() {
     if (currentVRM && currentVRM.humanoid) {
         const h = currentVRM.humanoid;
 
-        // === OFFICIAL EXAMPLE PATTERN ===
-        // Left arm: rotation.z, Right arm: rotation.x
-        // These are RELATIVE to rest pose (T-pose = 0,0,0)
-        const s = 0.25 * Math.PI * Math.sin(Math.PI * clock.elapsedTime);
+        // A-pose: both arms DOWN
+        // Left arm: Z axis positive = DOWN (confirmed by screenshot)
+        // Right arm: Z axis negative = DOWN (mirror of left)
+        h.getNormalizedBoneNode('leftUpperArm').rotation.z = 0.6;
+        h.getNormalizedBoneNode('rightUpperArm').rotation.z = -0.6;
 
-        // Apply A-pose: arms down ~45 degrees
-        // Left arm rotates around Z to go down
-        h.getNormalizedBoneNode('leftUpperArm').rotation.z = s;
-        // Right arm rotates around X to go down
-        h.getNormalizedBoneNode('rightUpperArm').rotation.x = s;
+        // Slight elbow bend
+        h.getNormalizedBoneNode('leftLowerArm').rotation.z = -0.15;
+        h.getNormalizedBoneNode('rightLowerArm').rotation.z = 0.15;
 
-        // Idle head
-        h.getNormalizedBoneNode('head').rotation.y = s * 0.3;
+        // Head straight
+        h.getNormalizedBoneNode('head').rotation.set(0, 0, 0);
+        h.getNormalizedBoneNode('spine').rotation.set(0, 0, 0);
+        h.getNormalizedBoneNode('chest').rotation.set(0, 0, 0);
 
         // Blinking
         blink.timer += dt;
