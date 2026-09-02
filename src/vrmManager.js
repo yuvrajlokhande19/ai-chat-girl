@@ -51,7 +51,7 @@ const BASE_POSE = {
     hips:          { x: 0, y: 0, z: 0 },
 };
 
-const IDLE_ACTIONS = ['breathe', 'hairTouch', 'dressCheck', 'weightShift', 'lookAround', 'fidget'];
+const IDLE_ACTIONS = ['breathe', 'hairTouch', 'weightShift', 'lookAround', 'fidget'];
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function easeInOut(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
@@ -169,7 +169,8 @@ function loop() {
     cameraDistance += (targetDistance - cameraDistance) * 0.08;
     cameraY += (targetCameraY - cameraY) * 0.08;
     camera.position.set(0, cameraY, cameraDistance);
-    camera.lookAt(new THREE.Vector3(0, 1.1 + (cameraDistance - 1.0) * 0.05, 0));
+    // Look at face (y=1.45) not stomach
+    camera.lookAt(new THREE.Vector3(0, 1.45, 0));
 
     if (currentVRM && currentVRM.humanoid) {
         const h = currentVRM.humanoid;
@@ -195,7 +196,10 @@ function loop() {
         if (cursorDist < 0.6) {
             lookAtWeight += (1 - lookAtWeight) * 0.05;
         } else {
-            lookAtWeight *= 0.95; // smooth decay
+            lookAtWeight *= 0.9;
+            // Reset target when far away so head returns to straight
+            mouseTarget.x *= 0.95;
+            mouseTarget.y *= 0.95;
         }
         pose.head.y += mouseTarget.x * 0.35 * lookAtWeight;
         pose.head.x += mouseTarget.y * 0.25 * lookAtWeight;
@@ -221,14 +225,14 @@ function loop() {
                         // Right hand to hair - coordinated shoulder/elbow/wrist
                         if (at < 1) {
                             pose.rightShoulder.x = lerp(0, -0.2, at);
-                            pose.rightUpperArm.z = lerp(-1.22, -1.6, at);
+                            pose.rightUpperArm.z = lerp(-1.35, -1.7, at);
                             pose.rightUpperArm.x = lerp(0, 0.4, at);
                             pose.rightLowerArm.x = lerp(0, -1.0, at);
                             pose.rightHand.z = lerp(-0.15, 0.2, at);
                             pose.head.z = lerp(0, 0.05, at);
                         } else {
                             pose.rightShoulder.x = -0.2 + Math.sin(t * 0.5) * 0.02;
-                            pose.rightUpperArm.z = -1.6;
+                            pose.rightUpperArm.z = -1.7;
                             pose.rightUpperArm.x = 0.4;
                             pose.rightLowerArm.x = -1.0;
                             pose.rightHand.z = 0.2;
@@ -237,23 +241,7 @@ function loop() {
                         if (idleActionTimer > 5) { idleAction = null; }
                         break;
 
-                    case 'dressCheck':
-                        // Head down, slight lean, left hand near hip
-                        if (at < 1) {
-                            pose.head.x = lerp(0, 0.25, at);
-                            pose.neck.x = lerp(0, 0.12, at);
-                            pose.spine.x = lerp(0, 0.08, at);
-                            pose.leftUpperArm.y = lerp(0.1, 0.2, at);
-                            pose.leftLowerArm.z = lerp(-0.17, -0.3, at);
-                            pose.leftHand.z = lerp(0.15, 0.25, at);
-                        } else {
-                            pose.head.x = 0.25 + Math.sin(t * 0.3) * 0.02;
-                            pose.neck.x = 0.12;
-                            pose.spine.x = 0.08;
-                            pose.leftUpperArm.y = 0.2;
-                        }
-                        if (idleActionTimer > 4) { idleAction = null; }
-                        break;
+                    
 
                     case 'weightShift':
                         // Hip sway with full body counter-balance
@@ -261,8 +249,8 @@ function loop() {
                         pose.hips.x = Math.cos(t * 0.5) * 0.02;
                         pose.head.z = -Math.sin(t * 0.5) * 0.04;
                         pose.neck.z = -Math.sin(t * 0.5) * 0.02;
-                        pose.leftUpperArm.z = lerp(1.22, 1.1, 0.5 + Math.sin(t * 0.6) * 0.5);
-                        pose.rightUpperArm.z = lerp(-1.22, -1.1, 0.5 + Math.sin(t * 0.6 + 1) * 0.5);
+                        pose.leftUpperArm.z = lerp(1.35, 1.25, 0.5 + Math.sin(t * 0.6) * 0.5);
+                        pose.rightUpperArm.z = lerp(-1.35, -1.25, 0.5 + Math.sin(t * 0.6 + 1) * 0.5);
                         if (idleActionTimer > 6) { idleAction = null; }
                         break;
 
@@ -272,8 +260,8 @@ function loop() {
                         pose.head.x = Math.cos(t * 0.25) * 0.1;
                         pose.neck.y = pose.head.y * 0.7;
                         pose.neck.x = pose.head.x * 0.6;
-                        pose.leftUpperArm.z = lerp(1.22, 1.15, Math.sin(t * 0.2) * 0.5 + 0.5);
-                        pose.rightUpperArm.z = lerp(-1.22, -1.15, Math.sin(t * 0.2 + 1) * 0.5 + 0.5);
+                        pose.leftUpperArm.z = lerp(1.35, 1.3, Math.sin(t * 0.2) * 0.5 + 0.5);
+                        pose.rightUpperArm.z = lerp(-1.35, -1.3, Math.sin(t * 0.2 + 1) * 0.5 + 0.5);
                         if (idleActionTimer > 8) { idleAction = null; }
                         break;
 
