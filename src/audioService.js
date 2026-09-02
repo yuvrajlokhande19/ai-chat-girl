@@ -1,24 +1,30 @@
 const KOKORO_URL = 'http://127.0.0.1:8880/v1/audio/speech';
 
-let currentVoiceProfile = 'indian-teen';
+let currentVoiceProfile = 'indian-teen-hinglish';
 let kokoroAvailable = true;
+let availableKokoroVoices = [];
 
-// === VOICE PROFILES ===
+// === VOICE PROFILES - Optimized for Indian Teen Girl ===
 const VOICE_PROFILES = {
-    'indian-teen': {
-        kokoro: { voice: 'af_heart', speed: 1.1 }, // af_heart is warm female
-        browser: { lang: 'en-IN', rate: 1.1, pitch: 1.4, volume: 1.0 },
-        fallback: 'en-IN'
-    },
-    'indian-teen-en': {
-        kokoro: { voice: 'af_bella', speed: 1.15 }, // af_bella is younger sounding
-        browser: { lang: 'en-IN', rate: 1.15, pitch: 1.45, volume: 1.0 },
+    'indian-teen-hinglish': {
+        kokoro: { voice: 'af_bella', speed: 1.15 }, // Young female, warm
+        browser: { lang: 'en-IN', rate: 1.15, pitch: 1.4, volume: 1.0 },
         fallback: 'en-IN'
     },
     'indian-teen-hindi': {
-        kokoro: { voice: 'af_heart', speed: 1.05 },
+        kokoro: { voice: 'af_heart', speed: 1.05 }, // Warm female for Hindi
         browser: { lang: 'hi-IN', rate: 1.0, pitch: 1.35, volume: 1.0 },
         fallback: 'hi-IN'
+    },
+    'indian-teen-english': {
+        kokoro: { voice: 'af_bella', speed: 1.1 },
+        browser: { lang: 'en-IN', rate: 1.1, pitch: 1.35, volume: 1.0 },
+        fallback: 'en-IN'
+    },
+    'indian-teen-cute': {
+        kokoro: { voice: 'af_sky', speed: 1.2 }, // Higher, cuter
+        browser: { lang: 'en-IN', rate: 1.2, pitch: 1.5, volume: 1.0 },
+        fallback: 'en-IN'
     },
     'browser-female': {
         kokoro: null,
@@ -29,28 +35,20 @@ const VOICE_PROFILES = {
 
 function getFemaleVoice(lang = 'en-IN') {
     const voices = window.speechSynthesis.getVoices();
-    
-    // Priority order for Indian teenage girl voice
     const priorities = [
-        // Indian English female voices
         v => v.lang === 'en-IN' && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('woman') || v.name.toLowerCase().includes('girl')),
         v => v.lang === 'en-IN' && v.name.toLowerCase().includes('google'),
         v => v.lang === 'en-IN' && v.name.toLowerCase().includes('microsoft'),
-        // Hindi voices
         v => v.lang === 'hi-IN' && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('woman')),
         v => v.lang === 'hi-IN',
-        // General English female
         v => v.lang.startsWith('en') && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('woman') || v.name.toLowerCase().includes('girl')),
         v => v.lang.startsWith('en') && v.name.toLowerCase().includes('google'),
         v => v.lang.startsWith('en') && v.name.toLowerCase().includes('microsoft'),
         v => v.lang.startsWith('en') && v.name.toLowerCase().includes('zira'),
         v => v.lang.startsWith('en') && v.name.toLowerCase().includes('hazel'),
-        // Any female
         v => v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('woman'),
-        // Fallback
         v => v.lang.startsWith('en'),
     ];
-    
     for (const check of priorities) {
         const v = voices.find(check);
         if (v) return v;
@@ -68,22 +66,20 @@ export function setVoiceProfile(profile) {
 }
 
 export function getVoiceProfile() {
-    return VOICE_PROFILES[currentVoiceProfile] || VOICE_PROFILES['indian-teen'];
+    return VOICE_PROFILES[currentVoiceProfile] || VOICE_PROFILES['indian-teen-hinglish'];
 }
 
 function getFemaleVoiceForProfile(profile) {
-    const profileConfig = VOICE_PROFILES[profile] || VOICE_PROFILES['indian-teen'];
+    const profileConfig = VOICE_PROFILES[profile] || VOICE_PROFILES['indian-teen-hinglish'];
     const voices = window.speechSynthesis.getVoices();
     const lang = profileConfig.browser.lang;
     
-    // Try to find voice matching profile language
     const exact = voices.find(v => v.lang === lang && (v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('woman')));
     if (exact) return exact;
     
     const langMatch = voices.find(v => v.lang === lang);
     if (langMatch) return langMatch;
     
-    // Fallback to general female
     return getFemaleVoice(lang);
 }
 
@@ -93,8 +89,7 @@ export function setupSpeechRecognition(onResult, onState) {
     const r = new SR();
     r.continuous = true;
     r.interimResults = false;
-    // Support Hindi + English
-    r.lang = 'en-IN';
+    r.lang = 'en-IN'; // Hinglish support
     r.onresult = (e) => {
         const last = e.results.length - 1;
         if (e.results[last].isFinal) {
@@ -110,10 +105,24 @@ export function setupSpeechRecognition(onResult, onState) {
     return r;
 }
 
+// === FILTER EMOTICONS/EMOJIS FROM SPEECH ===
+function filterTextForSpeech(text) {
+    // Remove emoji shortcodes like :smile:, :heart:, etc.
+    let filtered = text.replace(/:[a-zA-Z0-9_+-]+:/g, '');
+    // Remove actual emoji characters
+    filtered = filtered.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}]/gu, '');
+    // Clean up multiple spaces
+    filtered = filtered.replace(/\s+/g, ' ').trim();
+    return filtered;
+}
+
 export async function fetchTTS(text, volCallback, profileOverride = null) {
-    const profile = VOICE_PROFILES[profileOverride || currentVoiceProfile] || VOICE_PROFILES['indian-teen'];
+    const profile = VOICE_PROFILES[profileOverride || currentVoiceProfile] || VOICE_PROFILES['indian-teen-hinglish'];
     
-    console.log('[Audio] TTS:', text.substring(0, 50), '| Profile:', currentVoiceProfile);
+    // Filter emojis from speech text
+    const speechText = filterTextForSpeech(text);
+    
+    console.log('[Audio] TTS:', speechText.substring(0, 50), '| Profile:', currentVoiceProfile);
     
     // Try Kokoro first
     if (kokoroAvailable && profile.kokoro) {
@@ -124,7 +133,7 @@ export async function fetchTTS(text, volCallback, profileOverride = null) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    text, 
+                    text: speechText, 
                     model: 'kokoro-82m', 
                     voice: profile.kokoro.voice,
                     speed: profile.kokoro.speed
@@ -143,8 +152,8 @@ export async function fetchTTS(text, volCallback, profileOverride = null) {
         }
     }
     
-    // Fallback to browser TTS with profile
-    return browserTTS(text, volCallback, profileOverride || currentVoiceProfile);
+    // Fallback to browser TTS
+    return browserTTS(speechText, volCallback, profileOverride || currentVoiceProfile);
 }
 
 async function playBlob(blob, volCallback) {
@@ -172,11 +181,11 @@ async function playBlob(blob, volCallback) {
     });
 }
 
-function browserTTS(text, volCallback, profile = 'indian-teen') {
+function browserTTS(text, volCallback, profile = 'indian-teen-hinglish') {
     return new Promise(resolve => {
         const u = new SpeechSynthesisUtterance(text);
         const voice = getFemaleVoiceForProfile(profile);
-        const profileConfig = VOICE_PROFILES[profile] || VOICE_PROFILES['indian-teen'];
+        const profileConfig = VOICE_PROFILES[profile] || VOICE_PROFILES['indian-teen-hinglish'];
         
         if (voice) {
             u.voice = voice;
@@ -188,7 +197,7 @@ function browserTTS(text, volCallback, profile = 'indian-teen') {
         u.pitch = profileConfig.browser.pitch;
         u.volume = profileConfig.browser.volume;
         
-        // For Hindi text, adjust if needed
+        // Auto-detect Hindi (Devanagari)
         const hasHindi = /[\u0900-\u097F]/.test(text);
         if (hasHindi && profile !== 'indian-teen-hindi') {
             u.lang = 'hi-IN';
@@ -196,11 +205,11 @@ function browserTTS(text, volCallback, profile = 'indian-teen') {
             u.pitch = 1.35;
         }
         
-        // For GenZ/mixed text
-        const hasGenZ = /(yaar|bro|bhai|chalo|arre|ya|omg|wow|lol|lmao|tbh|idk|fyi|imo|btw|brb|ttyl|rn|fr|ngl|smh|tbh)/i.test(text);
+        // GenZ/Hinglish detection
+        const hasGenZ = /(yaar|bro|bhai|chalo|arre|ya|omg|wow|lol|lmao|tbh|idk|fyi|imo|btw|brb|ttyl|rn|fr|ngl|smh|tbh|abhi|time|hua|hai|kya|kar|rahe|ho|main|tum|mujhe|pasand|nahi|haan|theek|achha|badhiya|mast|jhakaas|bakwas|bakwaas)/i.test(text);
         if (hasGenZ && profile !== 'indian-teen-hindi') {
-            u.rate = Math.min(u.rate + 0.05, 1.2);
-            u.pitch = Math.min(u.pitch + 0.05, 1.5);
+            u.rate = Math.min(u.rate + 0.05, 1.25);
+            u.pitch = Math.min(u.pitch + 0.05, 1.55);
         }
         
         const iv = setInterval(() => volCallback(0.1 + Math.random() * 0.4), 60);
@@ -208,6 +217,19 @@ function browserTTS(text, volCallback, profile = 'indian-teen') {
         u.onerror = (e) => { console.error('[Audio] Browser TTS error:', e); clearInterval(iv); volCallback(0); resolve(); };
         window.speechSynthesis.speak(u);
     });
+}
+
+export function setVoiceProfile(profile) {
+    if (VOICE_PROFILES[profile]) {
+        currentVoiceProfile = profile;
+        console.log('[Audio] Voice profile set to:', profile);
+        return true;
+    }
+    return false;
+}
+
+export function getVoiceProfile() {
+    return VOICE_PROFILES[currentVoiceProfile] || VOICE_PROFILES['indian-teen-hinglish'];
 }
 
 export function stopSpeaking() { window.speechSynthesis?.cancel(); }

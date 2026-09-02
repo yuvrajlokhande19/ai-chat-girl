@@ -237,6 +237,47 @@
         }
         .msg-time { font-size: 10px; opacity: 0.5; margin-top: 4px; text-align: right; }
 
+        /* === THINKING ANIMATION (Fluid Color Simulation) === */
+        .thinking-animation {
+            display: flex; gap: 6px; justify-content: center; padding: 8px 0;
+        }
+        .thinking-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), var(--pink), var(--purple));
+            animation: thinkingPulse 1.2s ease-in-out infinite;
+        }
+        .thinking-dot:nth-child(1) { animation-delay: 0s; }
+        .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+        .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes thinkingPulse {
+            0%, 100% { transform: scale(1); opacity: 0.6; }
+            50% { transform: scale(1.4); opacity: 1; }
+        }
+        .thinking-gradient {
+            position: absolute; inset: -2px; border-radius: 20px;
+            background: linear-gradient(135deg, var(--accent), var(--pink), var(--purple), var(--accent));
+            background-size: 300% 300%;
+            animation: gradientShift 3s ease infinite;
+            opacity: 0.3;
+            filter: blur(8px);
+            z-index: -1;
+        }
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .msg.thinking { position: relative; overflow: hidden; }
+        .msg.thinking::before {
+            content: ''; position: absolute; inset: 0;
+            background: linear-gradient(135deg, var(--accent), var(--pink), var(--purple), var(--accent));
+            background-size: 300% 300%;
+            animation: gradientShift 3s ease infinite;
+            opacity: 0.15;
+            z-index: 0;
+        }
+        .msg.thinking > * { position: relative; z-index: 1; }
+
         /* === INPUT BAR (Bottom Center) === */
         #input-bar {
             position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 100;
@@ -356,16 +397,22 @@
                     <input type="color" id="bg-color-picker" value="#000000" title="Background Color">
                     <span style="flex:1;text-align:left;font-size:13px;">Solid Color</span>
                 </div>
-                <div class="menu-item">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor"/>
-                        <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
-                        <path d="M21 15l-5-5L5 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                    <input type="file" id="bg-image-upload" accept="image/*" style="display:none;">
-                    <label style="flex:1;cursor:pointer;">
-                        <input type="text" id="bg-url-input" placeholder="Image URL (https://...)" style="width:100%;background:transparent;border:none;color:var(--text);font:inherit;outline:none;">
-                    </label>
+                <div class="menu-item" style="flex-direction:column;gap:8px;align-items:stretch;">
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor"/>
+                            <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+                            <path d="M21 15l-5-5L5 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <input type="file" id="bg-image-upload" accept="image/*" style="display:none;">
+                        <label style="flex:1;cursor:pointer;">
+                            <input type="text" id="bg-url-input" placeholder="Image URL (https://...)" style="width:100%;background:transparent;border:none;color:var(--text);font:inherit;outline:none;">
+                        </label>
+                    </div>
+                    <div style="display:flex;gap:8px;">
+                        <button id="bg-url-add" class="menu-btn-small" style="padding:8px 16px;background:var(--accent);color:#0f172a;border:none;border-radius:8px;font-weight:600;font-size:12px;cursor:pointer;">Add from URL</button>
+                        <button id="bg-file-add" class="menu-btn-small" style="padding:8px 16px;background:rgba(148,163,184,0.2);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;font-weight:600;font-size:12px;cursor:pointer;">Upload Image</button>
+                    </div>
                 </div>
             </div>
             <div class="menu-divider"></div>
@@ -394,7 +441,9 @@
                     </svg>
                     <span style="flex:1;text-align:left;font-size:13px;">Voice Settings</span>
                     <select id="voice-select" style="padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;">
-                        <option value="indian-teen">Indian Teen Girl (Hindi + GenZ)</option>
+                        <option value="indian-teen-hinglish">Indian Teen Girl (Hindi + GenZ)</option>
+                        <option value="indian-teen-cute">Indian Teen Girl (Cute / High Pitch)</option>
+                        <option value="indian-teen-hindi">Indian Teen Girl (Pure Hindi)</option>
                         <option value="indian-teen-en">Indian Teen Girl (English)</option>
                         <option value="browser-female">Browser Female (Fallback)</option>
                     </select>

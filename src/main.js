@@ -30,6 +30,7 @@ let isListening = false;
 let isMenuOpen = false;
 let autoChatTimer = null;
 let lastAutoChat = 0;
+let thinkingMsg = null;
 
 // === CHAT HELPERS ===
 function addMsg(who, text, cls) {
@@ -53,15 +54,48 @@ function setStatus(text, type = '') {
     statusBadge.className = type ? type : '';
 }
 
-// === AUTONOMOUS CHAT ===
+// === THINKING ANIMATION (Fluid Color Simulation) ===
+function showThinking() {
+    thinkingMsg = addMsg('Chloe', '', 'msg-chloe thinking');
+    thinkingMsg.innerHTML = `
+        <div class="thinking-animation">
+            <div class="thinking-dot"></div>
+            <div class="thinking-dot"></div>
+            <div class="thinking-dot"></div>
+        </div>
+        <div class="msg-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+    `;
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+    return thinkingMsg;
+}
+
+function hideThinking() {
+    if (thinkingMsg) {
+        thinkingMsg.remove();
+        thinkingMsg = null;
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function setStatus(text, type = '') {
+    statusBadge.querySelector('span:last-child').textContent = text;
+    statusBadge.className = type ? type : '';
+}
+
+// === AUTONOMOUS CHAT (Hinglish) ===
 const AUTO_CHAT_MESSAGES = [
-    "Hey, you there? 👀",
-    "Kya kar rahe ho? 🤔",
-    "Bored... bolo na kuch 😴",
-    "Mujhe dance karna hai! 💃",
+    "Arre, abhi time itna ho gaya? 😮",
+    "Kya kar rahe ho abhi? Batao na 🤔",
+    "Bored ho rahi thi... bolo kuch 😴",
     "Chai peene ka mann kar raha hai ☕",
+    "Mujhe dance karna hai! 💃",
     "Kya tum mujhe bhool gaye? 🥺",
-    "Aaj weather kaisa hai?",
+    "Aaj weather kaisa hai? Barish ho rahi kya?",
     "Mujhe naya VRM try karna hai ✨",
     "Arre, sun to rahe ho na? 👂",
     "Kuch interesting bolo na! 😊",
@@ -69,14 +103,19 @@ const AUTO_CHAT_MESSAGES = [
     "Pata hai, main GenZ language mein baat kar sakti hoon! 😎",
     "Kabhi dance karao mujhe 💃",
     "Mujhe naye backgrounds pasand hain 🎨",
-    "Tumhara din kaisa gaya? 🌸"
+    "Tumhara din kaisa gaya? 🌸",
+    "Abhi kuch kaam kar rahe the? 💻",
+    "Weekend plans kya hain? 🎉",
+    "Mujhe naya gaana suno na 🎵",
+    "Kya tum bhi mere jaisi ho? 😄",
+    "Chalo kuch game khelte hain 🎮"
 ];
 
 function scheduleAutoChat() {
     if (autoChatTimer) clearTimeout(autoChatTimer);
     const delay = 30000 + Math.random() * 90000; // 30s - 2min
     autoChatTimer = setTimeout(() => {
-        if (Date.now() - lastAutoChat > 45000) { // Don't spam
+        if (Date.now() - lastAutoChat > 45000) {
             const msg = AUTO_CHAT_MESSAGES[Math.floor(Math.random() * AUTO_CHAT_MESSAGES.length)];
             addMsg('Chloe', msg, 'msg-chloe');
             lastAutoChat = Date.now();
@@ -90,56 +129,57 @@ function speakWithExpression(text) {
     const vrm = vrmManager.getVRM();
     if (!vrm) return;
     
-    // Set expression from text
     vrmManager.setExpressionFromText(text);
     
-    // Trigger appropriate motion
     const lower = text.toLowerCase();
     if (lower.includes('dance') || lower.includes('nacha')) vrmManager.triggerMotion('dance');
-    else if (lower.includes('hey') || lower.includes('hi') || lower.includes('hello')) vrmManager.triggerMotion('wave');
-    else if (lower.includes('bored') || lower.includes('bore')) vrmManager.triggerMotion('fidget');
-    else if (lower.includes('sad') || lower.includes('udaas')) vrmManager.triggerMotion('lookAround');
-    else if (lower.includes('happy') || lower.includes('khush')) vrmManager.triggerMotion('hairTouch');
+    else if (lower.includes('hey') || lower.includes('hi') || lower.includes('hello') || lower.includes('namaste')) vrmManager.triggerMotion('wave');
+    else if (lower.includes('bored') || lower.includes('bore') || lower.includes('udaas')) vrmManager.triggerMotion('fidget');
+    else if (lower.includes('sad') || lower.includes('udaas') || lower.includes('dukhi')) vrmManager.triggerMotion('lookAround');
+    else if (lower.includes('happy') || lower.includes('khush') || lower.includes('mast')) vrmManager.triggerMotion('hairTouch');
+    else if (lower.includes('soch') || lower.includes('think')) vrmManager.triggerMotion('think');
     
-    // Speak
     audio.fetchTTS(text, function(vol) {
         vrmManager.setMouth(vol);
-        vizFill.style.width = (vol * 100) + '%';
-    }, vrmManager.getVoiceProfile ? vrmManager.getVoiceProfile() : null);
+        if (vizFill) vizFill.style.width = (vol * 100) + '%';
+    });
 }
 
 async function processText(text) {
     if (!text.trim()) return;
     addMsg('You', text, 'msg-you');
     if (isListening && speechRecog) speechRecog.stop();
-    const think = addMsg('Chloe', 'Socho... 🤔', 'msg-sys');
+    
+    showThinking();
 
     // Check for motion triggers
-    if (text.toLowerCase().includes('dance')) vrmManager.triggerMotion('dance');
-    else if (text.toLowerCase().includes('wave') || text.toLowerCase().includes('haath')) vrmManager.triggerMotion('wave');
-    else if (text.toLowerCase().includes('nod') || text.toLowerCase().includes('haan')) vrmManager.triggerMotion('nod');
-    else if (text.toLowerCase().includes('laugh') || text.toLowerCase().includes('has')) vrmManager.triggerMotion('laugh');
-    else if (text.toLowerCase().includes('think') || text.toLowerCase().includes('soch')) vrmManager.triggerMotion('think');
+    const lower = text.toLowerCase();
+    if (lower.includes('dance') || lower.includes('nacha')) vrmManager.triggerMotion('dance');
+    else if (lower.includes('wave') || lower.includes('haath') || lower.includes('namaste')) vrmManager.triggerMotion('wave');
+    else if (lower.includes('nod') || lower.includes('haan')) vrmManager.triggerMotion('nod');
+    else if (lower.includes('laugh') || lower.includes('has') || lower.includes('haha')) vrmManager.triggerMotion('laugh');
+    else if (lower.includes('think') || lower.includes('soch')) vrmManager.triggerMotion('think');
 
     try {
         const r = await ollama.chatWithOllama(text);
-        think.innerHTML = `<b>Chloe:</b> ${escapeHtml(r.cleanText)}<div class="msg-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
-        think.className = 'msg msg-chloe';
+        hideThinking();
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        thinkingMsg = addMsg('Chloe', r.cleanText, 'msg-chloe');
+        thinkingMsg.innerHTML = `<b>Chloe:</b> ${escapeHtml(r.cleanText)}<div class="msg-time">${time}</div>`;
         r.motionTags.forEach(t => vrmManager.triggerMotion(t));
         
-        // Set expression from AI response
         vrmManager.setExpressionFromText(r.cleanText);
         
         await audio.fetchTTS(r.cleanText, function(vol) {
             vrmManager.setMouth(vol);
-            vizFill.style.width = (vol * 100) + '%';
+            if (vizFill) vizFill.style.width = (vol * 100) + '%';
         });
     } catch (err) {
-        think.innerHTML = `<b>Error:</b> ${err.message || 'Unknown'}<div class="msg-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
-        think.className = 'msg msg-sys';
+        hideThinking();
+        addMsg('Error', err.message || 'Unknown error', 'msg-sys');
     }
     vrmManager.resetMouth();
-    vizFill.style.width = '0%';
+    if (vizFill) vizFill.style.width = '0%';
 }
 
 async function initApp() {
@@ -163,7 +203,6 @@ async function initApp() {
     setStatus('Ready', 'connected');
     avatarStatusText.textContent = 'Chloe Ready';
     
-    // Start autonomous chat
     scheduleAutoChat();
 }
 
@@ -214,7 +253,21 @@ bgColorPicker.addEventListener('input', (e) => {
     addMsg('System', `Background color: ${e.target.value}`, 'msg-sys');
 });
 
-// Background Image URL
+// Background Image URL - Add button
+const bgUrlAddBtn = document.getElementById('bg-url-add');
+const bgUrlInput = document.getElementById('bg-url-input');
+if (bgUrlAddBtn) {
+    bgUrlAddBtn.addEventListener('click', () => {
+        const url = bgUrlInput.value.trim();
+        if (url) {
+            vrmManager.setBackgroundImage(url);
+            addMsg('System', 'Background image loaded from URL', 'msg-sys');
+            bgUrlInput.value = '';
+        }
+    }
+});
+
+// Background Image URL - Enter key
 bgUrlInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         const url = bgUrlInput.value.trim();
@@ -226,7 +279,13 @@ bgUrlInput.addEventListener('keypress', (e) => {
     }
 });
 
-// Background Image File Upload
+// Background Image File Upload - Add button
+const bgFileAddBtn = document.getElementById('bg-file-add');
+const bgImageUpload = document.getElementById('bg-image-upload');
+if (bgFileAddBtn) {
+    bgFileAddBtn.addEventListener('click', () => bgImageUpload.click());
+}
+
 bgImageUpload.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file && file.type.startsWith('image/')) {
@@ -264,7 +323,6 @@ canvasEl.addEventListener('drop', (e) => {
 });
 
 // === INIT ===
-// Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         if (isMenuOpen) {
@@ -280,7 +338,6 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Focus input on click anywhere (optional)
 canvasEl.addEventListener('click', () => {
     if (!isListening) inputEl.focus();
 });
