@@ -124,12 +124,14 @@ function loop() {
         // A-pose: both arms DOWN
         // Left arm: Z axis positive = DOWN (confirmed by screenshot)
         // Right arm: Z axis negative = DOWN (mirror of left)
-        h.getNormalizedBoneNode('leftUpperArm').rotation.z = 1.1;
-        h.getNormalizedBoneNode('rightUpperArm').rotation.z = -1.1;
+        h.getNormalizedBoneNode('leftUpperArm').rotation.z = 1.45;
+        h.getNormalizedBoneNode('leftUpperArm').rotation.y = 0.15;
+        h.getNormalizedBoneNode('rightUpperArm').rotation.z = -1.45;
+        h.getNormalizedBoneNode('rightUpperArm').rotation.y = -0.15;
 
         // Natural elbow bend
-        h.getNormalizedBoneNode('leftLowerArm').rotation.z = -0.25;
-        h.getNormalizedBoneNode('rightLowerArm').rotation.z = 0.25;
+        h.getNormalizedBoneNode('leftLowerArm').rotation.z = -0.3;
+        h.getNormalizedBoneNode('rightLowerArm').rotation.z = 0.3;
 
         // Head straight
         h.getNormalizedBoneNode('head').rotation.set(0, 0, 0);
