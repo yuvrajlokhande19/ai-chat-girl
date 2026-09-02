@@ -16,6 +16,9 @@ let danceTimer = 0;
 let danceTimeout = null;
 let mouseTarget = { x: 0, y: 0 };
 let lookAtWeight = 0;
+let isZooming = false;
+let zoomCooldown = 0;
+let expressionState = { happy: 0, sad: 0, angry: 0, surprised: 0, relaxed: 0 };
 
 const JOINT_LIMITS = {
     leftShoulder:  { x: [-0.5, 0.5], y: [-0.3, 0.3], z: [-0.3, 0.3] },
@@ -121,8 +124,9 @@ export function init(el, modelPath) {
 function onZoom(e) {
     e.preventDefault();
     targetDistance = Math.max(0.8, Math.min(5.0, targetDistance + e.deltaY * 0.002));
-    // Keep camera at face height for proper portrait zoom
     targetCameraY = 1.45;
+    isZooming = true;
+    zoomCooldown = 1.0;
 }
 
 function loadModel(path) {
@@ -170,47 +174,66 @@ function loop() {
     cameraDistance += (targetDistance - cameraDistance) * 0.08;
     cameraY += (targetCameraY - cameraY) * 0.08;
     camera.position.set(0, cameraY, cameraDistance);
-    // Look at face (y=1.45) not stomach
     camera.lookAt(new THREE.Vector3(0, 1.45, 0));
+
+    if (zoomCooldown > 0) {
+        zoomCooldown -= dt;
+        if (zoomCooldown <= 0) {
+            isZooming = false;
+            mouseTarget.x = 0;
+            mouseTarget.y = 0;
+        }
+    }
 
     if (currentVRM && currentVRM.humanoid) {
         const h = currentVRM.humanoid;
 
         const pose = JSON.parse(JSON.stringify(BASE_POSE));
 
-        // === ALWAYS: Breathing (scale-based like Animaze) ===
         const breath = 1 + Math.sin(t * 1.8) * 0.025;
         pose.chest.scale = breath;
         pose.upperChest.scale = breath;
         pose.chest.x += Math.sin(t * 1.8) * 0.005;
 
-        // === ALWAYS: Subtle micro-movements ===
         pose.leftUpperArm.x  += Math.sin(t * 0.5) * 0.015;
         pose.rightUpperArm.x += Math.sin(t * 0.5 + 1) * 0.015;
-        pose.leftHand.z      += Math.sin(t * 0.7) * 0.02;
-        pose.rightHand.z     += Math.sin(t * 0.7 + 0.5) * 0.02;
+        pose.leftHand.z      += Math.sin(t * 0.7) * 0.015;
+        pose.rightHand.z     += Math.sin(t * 0.7 + 0.5) * 0.015;
         pose.head.y          += Math.sin(t * 0.3) * 0.01;
         pose.head.x          += Math.cos(t * 0.25) * 0.005;
 
-        // === Mouse look-at (only when cursor near avatar face/body) ===
         const cursorDist = Math.sqrt(mouseTarget.x * mouseTarget.x + mouseTarget.y * mouseTarget.y);
-        if (cursorDist < 0.6) {
-            lookAtWeight += (1 - lookAtWeight) * 0.05;
+        if (!isZooming && cursorDist < 0.5) {
+            lookAtWeight += (1 - lookAtWeight) * 0.04;
         } else {
-            lookAtWeight *= 0.9;
-            // Reset target when far away so head returns to straight
-            mouseTarget.x *= 0.95;
-            mouseTarget.y *= 0.95;
+            lookAtWeight *= 0.85;
+            if (!isZooming) {
+                mouseTarget.x *= 0.93;
+                mouseTarget.y *= 0.93;
+            }
         }
         pose.head.y += mouseTarget.x * 0.35 * lookAtWeight;
         pose.head.x += mouseTarget.y * 0.25 * lookAtWeight;
         pose.neck.y = pose.head.y * 0.6;
         pose.neck.x = pose.head.x * 0.5;
 
-        // === Random idle actions (every 5-15s) ===
+        if (currentVRM.expressionManager) {
+            const exp = expressionState;
+            exp.happy     *= 0.98;
+            exp.sad       *= 0.98;
+            exp.angry     *= 0.98;
+            exp.surprised *= 0.98;
+            exp.relaxed   = 1 - Math.max(exp.happy, exp.sad, exp.angry, exp.surprised);
+            
+            if (exp.happy > 0.05) currentVRM.expressionManager.setValue('happy', exp.happy);
+            if (exp.sad > 0.05) currentVRM.expressionManager.setValue('sad', exp.sad);
+            if (exp.angry > 0.05) currentVRM.expressionManager.setValue('angry', exp.angry);
+            if (exp.surprised > 0.05) currentVRM.expressionManager.setValue('surprised', exp.surprised);
+        }
+
         if (!isDancing) {
             idleTimer += dt;
-            if (idleTimer > 5 + Math.random() * 10) {
+            if (idleTimer > 8 + Math.random() * 12) {
                 idleTimer = 0;
                 idleAction = IDLE_ACTIONS[Math.floor(Math.random() * IDLE_ACTIONS.length)];
                 idleActionTimer = 0;
@@ -223,7 +246,6 @@ function loop() {
 
                 switch (idleAction) {
                     case 'hairTouch':
-                        // Right hand to hair - coordinated shoulder/elbow/wrist
                         if (at < 1) {
                             pose.rightShoulder.x = lerp(0, -0.2, at);
                             pose.rightUpperArm.z = lerp(-1.35, -1.7, at);
@@ -242,10 +264,7 @@ function loop() {
                         if (idleActionTimer > 5) { idleAction = null; }
                         break;
 
-                    
-
                     case 'weightShift':
-                        // Hip sway with full body counter-balance
                         pose.hips.z = Math.sin(t * 0.5) * 0.06;
                         pose.hips.x = Math.cos(t * 0.5) * 0.02;
                         pose.head.z = -Math.sin(t * 0.5) * 0.04;
@@ -256,9 +275,8 @@ function loop() {
                         break;
 
                     case 'lookAround':
-                        // Slow head scan with neck coordination
-                        pose.head.y = Math.sin(t * 0.35) * 0.4;
-                        pose.head.x = Math.cos(t * 0.25) * 0.1;
+                        pose.head.y = Math.sin(t * 0.35) * 0.35;
+                        pose.head.x = Math.cos(t * 0.25) * 0.08;
                         pose.neck.y = pose.head.y * 0.7;
                         pose.neck.x = pose.head.x * 0.6;
                         pose.leftUpperArm.z = lerp(1.35, 1.3, Math.sin(t * 0.2) * 0.5 + 0.5);
@@ -267,20 +285,16 @@ function loop() {
                         break;
 
                     case 'fidget':
-                        // Small coordinated hand/wrist adjustments
-                        pose.leftHand.z = lerp(0.15, 0.3, Math.sin(t * 3) * 0.5 + 0.5);
-                        pose.leftHand.x = Math.sin(t * 2.5) * 0.05;
-                        pose.rightHand.z = lerp(-0.15, -0.3, Math.sin(t * 3 + 1) * 0.5 + 0.5);
-                        pose.rightHand.x = Math.sin(t * 2.5 + 1) * 0.05;
-                        pose.leftLowerArm.z = lerp(-0.17, -0.25, Math.sin(t * 2) * 0.5 + 0.5);
-                        pose.rightLowerArm.z = lerp(0.17, 0.25, Math.sin(t * 2 + 1) * 0.5 + 0.5);
-                        if (idleActionTimer > 4) { idleAction = null; }
+                        pose.leftHand.z = lerp(0.25, 0.3, Math.sin(t * 3) * 0.5 + 0.5);
+                        pose.leftHand.x = Math.sin(t * 2.5) * 0.03;
+                        pose.rightHand.z = lerp(-0.15, -0.2, Math.sin(t * 3 + 1) * 0.5 + 0.5);
+                        pose.rightHand.x = Math.sin(t * 2.5 + 1) * 0.03;
+                        if (idleActionTimer > 3) { idleAction = null; }
                         break;
                 }
             }
         }
 
-        // === Apply pose with joint limits ===
         const speed = 0.08;
         if (currentVRM && currentVRM.humanoid) {
             const applyBone = (name, target) => {
@@ -313,7 +327,6 @@ function loop() {
             if (upperChestBone) upperChestBone.scale.setScalar(pose.upperChest.scale);
         }
 
-        // === Blinking ===
         blink.timer += dt;
         if (blink.timer >= blink.next && blink.phase === 'open') {
             blink.timer = 0;
@@ -344,13 +357,12 @@ function resize() {
 }
 
 function onMouseMove(e) {
-    if (!currentVRM || !currentVRM.humanoid || isDancing) return;
+    if (!currentVRM || !currentVRM.humanoid || isDancing || isZooming) return;
     const mx = (e.clientX / window.innerWidth) * 2 - 1;
     const my = -(e.clientY / window.innerHeight) * 2 + 1;
     
-    // Only track if mouse is near avatar center (face/body area)
     const distFromCenter = Math.sqrt(mx * mx + my * my);
-    if (distFromCenter < 0.6) {
+    if (distFromCenter < 0.5) {
         mouseTarget.x = mx;
         mouseTarget.y = my;
         lookAtWeight = 0;
@@ -407,9 +419,31 @@ export function setMouth(v) {
     if (currentVRM && currentVRM.expressionManager) currentVRM.expressionManager.setValue('aa', v);
 }
 export function resetMouth() { setMouth(0); }
-export function zoomIn() { targetDistance = Math.max(0.8, targetDistance - 0.4); targetCameraY = 1.45; }
-export function zoomOut() { targetDistance = Math.min(5.0, targetDistance + 0.4); targetCameraY = 1.45; }
+export function zoomIn() { targetDistance = Math.max(0.8, targetDistance - 0.4); targetCameraY = 1.45; isZooming = true; zoomCooldown = 1.0; }
+export function zoomOut() { targetDistance = Math.min(5.0, targetDistance + 0.4); targetCameraY = 1.45; isZooming = true; zoomCooldown = 1.0; }
 export function setBackground(hex) { if (scene) scene.background = new THREE.Color(hex); }
 export function setBackgroundImage(url) {
     new THREE.TextureLoader().load(url, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; scene.background = tex; }, undefined, (e) => console.error('[VRM] Bg image fail:', e));
+}
+
+export function setExpressionFromText(text) {
+    if (!currentVRM || !currentVRM.expressionManager) return;
+    const exp = expressionState;
+    const lower = text.toLowerCase();
+    
+    if (lower.includes('happy') || lower.includes('😊') || lower.includes('😄') || lower.includes('joy') || lower.includes('glad') || lower.includes('love') || lower.includes('wonderful') || lower.includes('amazing') || lower.includes('great')) {
+        exp.happy = Math.min(exp.happy + 0.7, 1.0);
+    }
+    if (lower.includes('sad') || lower.includes('😢') || lower.includes('😭') || lower.includes('sorry') || lower.includes('unhappy') || lower.includes('disappointed') || lower.includes('upset')) {
+        exp.sad = Math.min(exp.sad + 0.7, 1.0);
+    }
+    if (lower.includes('angry') || lower.includes('😠') || lower.includes('😡') || lower.includes('mad') || lower.includes('furious') || lower.includes('annoyed') || lower.includes('frustrated')) {
+        exp.angry = Math.min(exp.angry + 0.7, 1.0);
+    }
+    if (lower.includes('surprised') || lower.includes('😲') || lower.includes('😮') || lower.includes('wow') || lower.includes('omg') || lower.includes('unexpected') || lower.includes('shocked')) {
+        exp.surprised = Math.min(exp.surprised + 0.7, 1.0);
+    }
+    if (lower.includes('relaxed') || lower.includes('calm') || lower.includes('peaceful') || lower.includes('okay') || lower.includes('fine')) {
+        exp.relaxed = Math.min(exp.relaxed + 0.5, 1.0);
+    }
 }
