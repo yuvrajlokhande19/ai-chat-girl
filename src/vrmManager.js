@@ -46,6 +46,8 @@ const BASE_POSE = {
     rightLowerArm: { x: 0, y: 0, z: 0.25 },
     leftHand:      { x: 0, y: -0.08, z: 0.25 },
     rightHand:     { x: 0, y: 0.08, z: -0.15 },
+    leftHandThumb: { x: 0, y: 0, z: 0.1 },
+    rightHandThumb: { x: 0, y: 0, z: -0.1 },
     head:          { x: 0, y: 0, z: 0 },
     neck:          { x: 0, y: 0, z: 0 },
     spine:         { x: 0, y: 0, z: 0 },
@@ -198,7 +200,7 @@ function loop() {
         pose.leftUpperArm.x  += Math.sin(t * 0.5) * 0.015;
         pose.rightUpperArm.x += Math.sin(t * 0.5 + 1) * 0.015;
         pose.leftHand.z      += Math.sin(t * 0.7) * 0.015;
-        pose.rightHand.z     += Math.sin(t * 0.7 + 0.5) * 0.015;
+        // Right hand stays still - no micro movements
         pose.head.y          += Math.sin(t * 0.3) * 0.01;
         pose.head.x          += Math.cos(t * 0.25) * 0.005;
 
@@ -251,14 +253,13 @@ function loop() {
                             pose.rightUpperArm.z = lerp(-1.35, -1.7, at);
                             pose.rightUpperArm.x = lerp(0, 0.4, at);
                             pose.rightLowerArm.x = lerp(0, -1.0, at);
-                            pose.rightHand.z = lerp(-0.15, 0.2, at);
+                            // Right hand stays at base pose during hair touch
                             pose.head.z = lerp(0, 0.05, at);
                         } else {
                             pose.rightShoulder.x = -0.2 + Math.sin(t * 0.5) * 0.02;
                             pose.rightUpperArm.z = -1.7;
                             pose.rightUpperArm.x = 0.4;
                             pose.rightLowerArm.x = -1.0;
-                            pose.rightHand.z = 0.2;
                             pose.head.z = 0.05;
                         }
                         if (idleActionTimer > 5) { idleAction = null; }
@@ -269,8 +270,8 @@ function loop() {
                         pose.hips.x = Math.cos(t * 0.5) * 0.02;
                         pose.head.z = -Math.sin(t * 0.5) * 0.04;
                         pose.neck.z = -Math.sin(t * 0.5) * 0.02;
+                        // Only left arm moves during weight shift
                         pose.leftUpperArm.z = lerp(1.35, 1.25, 0.5 + Math.sin(t * 0.6) * 0.5);
-                        pose.rightUpperArm.z = lerp(-1.35, -1.25, 0.5 + Math.sin(t * 0.6 + 1) * 0.5);
                         if (idleActionTimer > 6) { idleAction = null; }
                         break;
 
@@ -279,16 +280,15 @@ function loop() {
                         pose.head.x = Math.cos(t * 0.25) * 0.08;
                         pose.neck.y = pose.head.y * 0.7;
                         pose.neck.x = pose.head.x * 0.6;
+                        // Only left arm subtle movement
                         pose.leftUpperArm.z = lerp(1.35, 1.3, Math.sin(t * 0.2) * 0.5 + 0.5);
-                        pose.rightUpperArm.z = lerp(-1.35, -1.3, Math.sin(t * 0.2 + 1) * 0.5 + 0.5);
                         if (idleActionTimer > 8) { idleAction = null; }
                         break;
 
                     case 'fidget':
+                        // Only left hand subtle fidget
                         pose.leftHand.z = lerp(0.25, 0.3, Math.sin(t * 3) * 0.5 + 0.5);
                         pose.leftHand.x = Math.sin(t * 2.5) * 0.03;
-                        pose.rightHand.z = lerp(-0.15, -0.2, Math.sin(t * 3 + 1) * 0.5 + 0.5);
-                        pose.rightHand.x = Math.sin(t * 2.5 + 1) * 0.03;
                         if (idleActionTimer > 3) { idleAction = null; }
                         break;
                 }
