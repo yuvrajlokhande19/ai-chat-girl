@@ -14,10 +14,6 @@ let isDancing = false;
 let danceTimer = 0;
 let danceTimeout = null;
 
-// Store target rotations for smooth interpolation
-const poseTarget = {};
-const lerpSpeed = 0.15;
-
 export function getVRM() { return currentVRM; }
 
 export function init(el, modelPath) {
@@ -83,14 +79,13 @@ function loadModel(path) {
             if (vrm) {
                 currentVRM = vrm;
                 scene.add(vrm.scene);
-                vrm.scene.rotation.y = Math.PI;
+
+                // Use official VRMUtils.rotateVRM0 instead of manual rotation
+                VRMUtils.rotateVRM0(vrm);
 
                 const boneNames = Object.keys(vrm.humanoid.normalizedHumanBones);
                 console.log('[VRM] Bones found:', boneNames);
-
-                // Initialize pose targets to T-pose (all zeros)
-                initPoseTargets();
-                console.log('[VRM] Model ready, pose applied every frame');
+                console.log('[VRM] Model ready');
             } else {
                 scene.add(gltf.scene);
             }
@@ -99,45 +94,6 @@ function loadModel(path) {
         (p) => { if (p.total) console.log('[VRM] ' + Math.round(p.loaded / p.total * 100) + '%'); },
         (err) => { console.error('[VRM] Failed:', err); makePlaceholder(); startLoop(); }
     );
-}
-
-function initPoseTargets() {
-    const bones = ['leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
-        'leftHand', 'rightHand', 'spine', 'chest', 'head', 'neck',
-        'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg',
-        'leftShoulder', 'rightShoulder', 'hips'];
-    for (const name of bones) {
-        poseTarget[name] = { x: 0, y: 0, z: 0 };
-    }
-}
-
-function applyPose() {
-    if (!currentVRM || !currentVRM.humanoid) return;
-    const h = currentVRM.humanoid;
-
-    // Set base A-pose targets
-    poseTarget.leftUpperArm.z = -1.0;
-    poseTarget.leftUpperArm.y = 0.15;
-    poseTarget.rightUpperArm.z = 1.0;
-    poseTarget.rightUpperArm.y = -0.15;
-    poseTarget.leftLowerArm.z = -0.2;
-    poseTarget.rightLowerArm.z = 0.2;
-
-    // Smoothly interpolate ALL bones to targets
-    for (const [name, target] of Object.entries(poseTarget)) {
-        const bone = h.getNormalizedBoneNode(name);
-        if (!bone) continue;
-        bone.rotation.x += (target.x - bone.rotation.x) * lerpSpeed;
-        bone.rotation.y += (target.y - bone.rotation.y) * lerpSpeed;
-        bone.rotation.z += (target.z - bone.rotation.z) * lerpSpeed;
-    }
-
-    // Reset targets to zero for next frame (idle will set new targets)
-    for (const name of Object.keys(poseTarget)) {
-        poseTarget[name].x = 0;
-        poseTarget[name].y = 0;
-        poseTarget[name].z = 0;
-    }
 }
 
 function makePlaceholder() {
@@ -165,66 +121,19 @@ function loop() {
     if (currentVRM && currentVRM.humanoid) {
         const h = currentVRM.humanoid;
 
-        // Set A-pose targets
-        applyPose();
+        // === OFFICIAL EXAMPLE PATTERN ===
+        // Left arm: rotation.z, Right arm: rotation.x
+        // These are RELATIVE to rest pose (T-pose = 0,0,0)
+        const s = 0.25 * Math.PI * Math.sin(Math.PI * clock.elapsedTime);
 
-        // Add idle movement targets (on top of A-pose)
-        if (!isDancing) {
-            // Breathing
-            const tSpine = poseTarget.spine;
-            tSpine.x += Math.sin(t * 1.8) * 0.01;
-            tSpine.z += Math.sin(t * 0.7) * 0.008;
+        // Apply A-pose: arms down ~45 degrees
+        // Left arm rotates around Z to go down
+        h.getNormalizedBoneNode('leftUpperArm').rotation.z = s;
+        // Right arm rotates around X to go down
+        h.getNormalizedBoneNode('rightUpperArm').rotation.x = s;
 
-            const tChest = poseTarget.chest;
-            tChest.x += Math.sin(t * 1.5) * 0.006;
-
-            // Arm micro-sway
-            poseTarget.leftUpperArm.x += Math.sin(t * 0.6) * 0.015;
-            poseTarget.rightUpperArm.x += Math.sin(t * 0.6 + 0.5) * 0.015;
-
-            // Idle head
-            idleTimer += dt;
-            if (idleTimer > 3 + Math.random() * 4) {
-                idleTimer = 0;
-                idleAction = ['look', 'tilt', 'nod'][Math.floor(Math.random() * 3)];
-                setTimeout(() => { idleAction = null; }, 600 + Math.random() * 1200);
-            }
-            if (idleAction) {
-                const tHead = poseTarget.head;
-                if (idleAction === 'look') {
-                    tHead.y += Math.sin(t * 2) * 0.12;
-                    tHead.x += Math.cos(t * 1.5) * 0.05;
-                } else if (idleAction === 'tilt') {
-                    tHead.z += Math.sin(t * 3) * 0.08;
-                } else if (idleAction === 'nod') {
-                    tHead.x += Math.sin(t * 4) * -0.08;
-                }
-            }
-        }
-
-        // Dance targets
-        if (isDancing) {
-            danceTimer += dt;
-            const d = danceTimer;
-
-            poseTarget.spine.z += Math.sin(d * 6) * 0.1;
-            poseTarget.spine.x += Math.sin(d * 4) * 0.06;
-            poseTarget.chest.x += Math.sin(d * 3) * 0.04;
-            poseTarget.head.z += Math.sin(d * 6) * 0.1;
-            poseTarget.head.x += Math.sin(d * 4) * 0.06;
-
-            poseTarget.leftUpperArm.z += Math.sin(d * 5) * 1.2;
-            poseTarget.leftUpperArm.x += Math.cos(d * 4) * 0.8;
-            poseTarget.leftLowerArm.x += Math.sin(d * 5) * 0.6;
-            poseTarget.rightUpperArm.z += Math.sin(d * 5 + 1) * 1.2;
-            poseTarget.rightUpperArm.x += Math.cos(d * 4 + 1) * 0.8;
-            poseTarget.rightLowerArm.x += Math.sin(d * 5 + 1) * 0.6;
-
-            poseTarget.leftUpperLeg.x += Math.sin(d * 6) * 0.25;
-            poseTarget.leftUpperLeg.z += Math.sin(d * 3) * 0.06;
-            poseTarget.rightUpperLeg.x += Math.sin(d * 6 + Math.PI) * 0.25;
-            poseTarget.rightUpperLeg.z += Math.sin(d * 3 + Math.PI) * 0.06;
-        }
+        // Idle head
+        h.getNormalizedBoneNode('head').rotation.y = s * 0.3;
 
         // Blinking
         blink.timer += dt;
@@ -299,17 +208,17 @@ export function triggerMotion(name) {
     if (name === 'dance') { startDance(); return; }
 
     switch (name) {
-        case 'wave': anim('rightUpperArm', 'z', 2.5, 400); anim('rightLowerArm', 'x', -1.0, 400); break;
+        case 'wave': anim('rightUpperArm', 'x', 2.5, 400); anim('rightLowerArm', 'z', -1.0, 400); break;
         case 'nod': anim('head', 'x', -0.3, 250); break;
         case 'laugh': face('happy', 1, 600); anim('spine', 'z', 0.1, 150); break;
-        case 'think': anim('head', 'y', 0.4, 500); anim('rightUpperArm', 'z', 1.2, 300); anim('rightLowerArm', 'x', -1.2, 300); break;
-        case 'shrug': anim('leftUpperArm', 'x', 0.6, 300); anim('rightUpperArm', 'x', 0.6, 300); break;
+        case 'think': anim('head', 'y', 0.4, 500); anim('rightUpperArm', 'x', 1.2, 300); anim('rightLowerArm', 'z', -1.2, 300); break;
+        case 'shrug': anim('leftUpperArm', 'y', 0.6, 300); anim('rightUpperArm', 'y', 0.6, 300); break;
         case 'tilt_head': anim('head', 'z', 0.4, 350); break;
         case 'surprise': face('surprised', 1, 500); anim('head', 'x', -0.25, 200); break;
-        case 'blow_kiss': anim('rightUpperArm', 'z', 1.8, 300); anim('rightLowerArm', 'x', -1.5, 300); face('happy', 0.8, 800); break;
+        case 'blow_kiss': anim('rightUpperArm', 'x', 1.8, 300); anim('rightLowerArm', 'z', -1.5, 300); face('happy', 0.8, 800); break;
         case 'bow': anim('spine', 'x', 0.5, 500); anim('head', 'x', 0.3, 500); break;
-        case 'stretch': anim('leftUpperArm', 'z', -2.5, 500); anim('rightUpperArm', 'z', 2.5, 500); break;
-        case 'point': anim('rightUpperArm', 'z', 2.0, 300); anim('rightLowerArm', 'x', -0.5, 300); break;
+        case 'stretch': anim('leftUpperArm', 'z', -2.5, 500); anim('rightUpperArm', 'x', 2.5, 500); break;
+        case 'point': anim('rightUpperArm', 'x', 2.0, 300); anim('rightLowerArm', 'z', -0.5, 300); break;
     }
 }
 
