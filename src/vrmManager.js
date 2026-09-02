@@ -37,12 +37,12 @@ const JOINT_LIMITS = {
 const BASE_POSE = {
     leftShoulder:  { x: 0, y: 0, z: 0 },
     rightShoulder: { x: 0, y: 0, z: 0 },
-    leftUpperArm:  { x: 0, y: 0.1, z: 1.22 },
-    rightUpperArm: { x: 0, y: -0.1, z: -1.22 },
-    leftLowerArm:  { x: 0, y: 0, z: -0.17 },
-    rightLowerArm: { x: 0, y: 0, z: 0.17 },
-    leftHand:      { x: 0, y: -0.05, z: 0.15 },
-    rightHand:     { x: 0, y: 0.05, z: -0.15 },
+    leftUpperArm:  { x: 0, y: 0.05, z: 1.35 },
+    rightUpperArm: { x: 0, y: -0.05, z: -1.35 },
+    leftLowerArm:  { x: 0, y: 0, z: -0.25 },
+    rightLowerArm: { x: 0, y: 0, z: 0.25 },
+    leftHand:      { x: 0, y: -0.08, z: 0.25 },
+    rightHand:     { x: 0, y: 0.08, z: -0.25 },
     head:          { x: 0, y: 0, z: 0 },
     neck:          { x: 0, y: 0, z: 0 },
     spine:         { x: 0, y: 0, z: 0 },
@@ -190,8 +190,13 @@ function loop() {
         pose.head.y          += Math.sin(t * 0.3) * 0.01;
         pose.head.x          += Math.cos(t * 0.25) * 0.005;
 
-        // === Mouse look-at (face follows cursor) ===
-        lookAtWeight += (1 - lookAtWeight) * 0.05;
+        // === Mouse look-at (only when cursor near avatar face/body) ===
+        const cursorDist = Math.sqrt(mouseTarget.x * mouseTarget.x + mouseTarget.y * mouseTarget.y);
+        if (cursorDist < 0.6) {
+            lookAtWeight += (1 - lookAtWeight) * 0.05;
+        } else {
+            lookAtWeight *= 0.95; // smooth decay
+        }
         pose.head.y += mouseTarget.x * 0.35 * lookAtWeight;
         pose.head.x += mouseTarget.y * 0.25 * lookAtWeight;
         pose.neck.y = pose.head.y * 0.6;
@@ -353,9 +358,14 @@ function onMouseMove(e) {
     if (!currentVRM || !currentVRM.humanoid || isDancing) return;
     const mx = (e.clientX / window.innerWidth) * 2 - 1;
     const my = -(e.clientY / window.innerHeight) * 2 + 1;
-    mouseTarget.x = mx;
-    mouseTarget.y = my;
-    lookAtWeight = 0;
+    
+    // Only track if mouse is near avatar center (face/body area)
+    const distFromCenter = Math.sqrt(mx * mx + my * my);
+    if (distFromCenter < 0.6) {
+        mouseTarget.x = mx;
+        mouseTarget.y = my;
+        lookAtWeight = 0;
+    }
 }
 
 export function startDance() {
