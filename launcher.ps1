@@ -21,6 +21,20 @@ $choice = Read-Host "  Select option"
 $projectDir = $PSScriptRoot
 if (-not $projectDir) { $projectDir = "C:\Users\lokha\Downloads\Ai Chat girl" }
 
+$vitePort = 3000
+
+function Start-ViteServer {
+    Write-Host "  Starting Vite dev server..." -ForegroundColor Yellow
+    # Start Vite and capture the port it actually uses
+    $viteProcess = Start-Process cmd -ArgumentList "/c cd /d `"$projectDir`" && npx vite --host --port $vitePort" -PassThru
+    Start-Sleep 3
+    
+    # Try to detect actual port from output (Vite may use different port if 3000 is busy)
+    # For now, try common ports
+    $global:viteUrl = "http://localhost:$vitePort"
+    return $viteProcess
+}
+
 switch ($choice.ToUpper()) {
     "O" {
         Write-Host ""
@@ -35,13 +49,13 @@ switch ($choice.ToUpper()) {
         }
 
         Write-Host "  Starting Vite dev server..." -ForegroundColor Yellow
-        Start-Process cmd -ArgumentList "/c cd /d `"$projectDir`" && npx vite --host --port 3000"
-        Start-Sleep 3
+        Start-ViteServer
+        Start-Sleep 4
 
         Write-Host "  Opening browser..." -ForegroundColor Yellow
-        Start-Process "http://localhost:3000"
+        Start-Process $global:viteUrl
         Write-Host ""
-        Write-Host "  Chloe is running at http://localhost:3000" -ForegroundColor Green
+        Write-Host "  Chloe is running at $global:viteUrl" -ForegroundColor Green
         Write-Host ""
         pause
     }
@@ -59,9 +73,11 @@ switch ($choice.ToUpper()) {
         }
 
         Write-Host "  Restarting Vite..." -ForegroundColor Yellow
-        Start-Process cmd -ArgumentList "/c cd /d `"$projectDir`" && npx vite --host --port 3000"
-        Start-Sleep 3
-        Start-Process "http://localhost:3000"
+        Get-Process -Name node -ErrorAction SilentlyContinue | Stop-Process -Force
+        Start-Sleep 2
+        Start-ViteServer
+        Start-Sleep 4
+        Start-Process $global:viteUrl
 
         Write-Host "  Server restarted!" -ForegroundColor Green
         Write-Host ""
@@ -112,7 +128,7 @@ switch ($choice.ToUpper()) {
         pause
     }
     "L" {
-        Start-Process "http://localhost:3000"
+        if ($global:viteUrl) { Start-Process $global:viteUrl } else { Start-Process "http://localhost:3000" }
     }
     "Q" {
         exit

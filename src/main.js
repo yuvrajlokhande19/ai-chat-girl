@@ -24,6 +24,16 @@ const bgImageUpload = document.getElementById('bg-image-upload');
 const voiceSelect = document.getElementById('voice-select');
 const avatarStatusText = document.querySelector('#avatar-status .status-text');
 
+// Voice testing elements (from dynamic menu)
+const voiceEngineSelect = document.getElementById('voice-engine');
+const voiceSelectContainer = document.getElementById('voice-select-container');
+const voiceTestBtn = document.getElementById('voice-test-btn');
+const voiceStopBtn = document.getElementById('voice-stop-btn');
+const voiceTestText = document.getElementById('voice-test-text');
+const voiceTestStatus = document.getElementById('voice-test-status');
+const bgUrlAddBtn = document.getElementById('bg-url-add');
+const bgFileAddBtn = document.getElementById('bg-file-add');
+
 // === STATE ===
 let speechRecog = null;
 let isListening = false;
@@ -207,9 +217,21 @@ async function initApp() {
 }
 
 // === EVENT LISTENERS ===
-startBtn.addEventListener('click', initApp);
+function setupEventListeners() {
+    // Ensure DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            attachAllListeners();
+        });
+    } else {
+        attachAllListeners();
+    }
+}
 
-micBtn.addEventListener('click', function() {
+function attachAllListeners() {
+    startBtn.addEventListener('click', initApp);
+    
+    micBtn.addEventListener('click', function() {
     if (!speechRecog) { addMsg('System', 'Voice needs Chrome/Edge', 'msg-sys'); return; }
     isListening ? speechRecog.stop() : speechRecog.start();
 });
@@ -377,7 +399,7 @@ voiceStopBtn.addEventListener('click', () => {
     voiceTestBtn.textContent = '▶ Play Sample';
     voiceTestStatus.textContent = 'Stopped';
     voiceTestStatus.style.color = 'var(--orange)';
-});
+}
 
 // Initialize voice options
 populateVoiceOptions(currentVoiceEngine);
@@ -422,3 +444,6 @@ document.addEventListener('keydown', (e) => {
 canvasEl.addEventListener('click', () => {
     if (!isListening) inputEl.focus();
 });
+
+// Setup all event listeners
+setupEventListeners();
