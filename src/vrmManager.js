@@ -5,8 +5,8 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 let scene, camera, renderer, currentVRM, clock, container;
 let cameraDistance = 2.2;
 let targetDistance = 2.2;
-let cameraY = 1.0;
-let targetCameraY = 1.0;
+let cameraY = 1.45;
+let targetCameraY = 1.45;
 const blink = { timer: 0, next: 3, val: 0, phase: 'open' };
 let idleTimer = 0;
 let idleAction = null;
@@ -42,7 +42,7 @@ const BASE_POSE = {
     leftLowerArm:  { x: 0, y: 0, z: -0.25 },
     rightLowerArm: { x: 0, y: 0, z: 0.25 },
     leftHand:      { x: 0, y: -0.08, z: 0.25 },
-    rightHand:     { x: 0, y: 0.08, z: -0.25 },
+    rightHand:     { x: 0, y: 0.08, z: -0.15 },
     head:          { x: 0, y: 0, z: 0 },
     neck:          { x: 0, y: 0, z: 0 },
     spine:         { x: 0, y: 0, z: 0 },
@@ -121,7 +121,8 @@ export function init(el, modelPath) {
 function onZoom(e) {
     e.preventDefault();
     targetDistance = Math.max(0.8, Math.min(5.0, targetDistance + e.deltaY * 0.002));
-    targetCameraY = 0.9 + (targetDistance - 1.0) * 0.1;
+    // Keep camera at face height for proper portrait zoom
+    targetCameraY = 1.45;
 }
 
 function loadModel(path) {
@@ -406,8 +407,8 @@ export function setMouth(v) {
     if (currentVRM && currentVRM.expressionManager) currentVRM.expressionManager.setValue('aa', v);
 }
 export function resetMouth() { setMouth(0); }
-export function zoomIn() { targetDistance = Math.max(0.8, targetDistance - 0.4); targetCameraY = 0.9 + (targetDistance - 1.0) * 0.1; }
-export function zoomOut() { targetDistance = Math.min(5.0, targetDistance + 0.4); targetCameraY = 0.9 + (targetDistance - 1.0) * 0.1; }
+export function zoomIn() { targetDistance = Math.max(0.8, targetDistance - 0.4); targetCameraY = 1.45; }
+export function zoomOut() { targetDistance = Math.min(5.0, targetDistance + 0.4); targetCameraY = 1.45; }
 export function setBackground(hex) { if (scene) scene.background = new THREE.Color(hex); }
 export function setBackgroundImage(url) {
     new THREE.TextureLoader().load(url, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; scene.background = tex; }, undefined, (e) => console.error('[VRM] Bg image fail:', e));
