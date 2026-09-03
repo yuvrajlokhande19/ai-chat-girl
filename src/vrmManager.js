@@ -21,20 +21,20 @@ let zoomCooldown = 0;
 let expressionState = { happy: 0, sad: 0, angry: 0, surprised: 0, relaxed: 0 };
 
 const JOINT_LIMITS = {
-    leftShoulder:  { x: [-0.5, 0.5], y: [-0.3, 0.3], z: [-0.3, 0.3] },
-    rightShoulder: { x: [-0.5, 0.5], y: [-0.3, 0.3], z: [-0.3, 0.3] },
-    leftUpperArm:  { x: [-1.5, 0.5], y: [-0.5, 0.5], z: [0.5, 1.8] },
-    rightUpperArm: { x: [-1.5, 0.5], y: [-0.5, 0.5], z: [-1.8, -0.5] },
-    leftLowerArm:  { x: [-0.2, 2.6], y: [-0.3, 0.3], z: [-0.5, 0.2] },
-    rightLowerArm: { x: [-0.2, 2.6], y: [-0.3, 0.3], z: [-0.2, 0.5] },
-    leftHand:      { x: [-0.5, 0.5], y: [-0.4, 0.4], z: [-0.3, 0.3] },
-    rightHand:     { x: [-0.5, 0.5], y: [-0.4, 0.4], z: [-0.3, 0.3] },
-    head:          { x: [-0.5, 0.3], y: [-0.8, 0.8], z: [-0.3, 0.3] },
-    neck:          { x: [-0.4, 0.2], y: [-0.5, 0.5], z: [-0.2, 0.2] },
-    spine:         { x: [-0.2, 0.1], y: [-0.1, 0.1], z: [-0.1, 0.1] },
-    chest:         { x: [-0.15, 0.05], y: [-0.05, 0.05], z: [-0.05, 0.05] },
-    upperChest:    { x: [-0.1, 0.05], y: [-0.03, 0.03], z: [-0.03, 0.03] },
-    hips:          { x: [-0.2, 0.1], y: [-0.1, 0.1], z: [-0.1, 0.1] },
+    leftShoulder:  { x: [-0.3, 0.3], y: [-0.2, 0.2], z: [-0.2, 0.2] },
+    rightShoulder: { x: [-0.3, 0.3], y: [-0.2, 0.2], z: [-0.2, 0.2] },
+    leftUpperArm:  { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [0.5, 1.8] },
+    rightUpperArm: { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [-1.8, -0.5] },
+    leftLowerArm:  { x: [-0.3, 1.5], y: [-0.3, 0.3], z: [-0.5, 0.3] },
+    rightLowerArm: { x: [-0.3, 1.5], y: [-0.3, 0.3], z: [-0.3, 0.5] },
+    leftHand:      { x: [-0.4, 0.4], y: [-0.3, 0.3], z: [-0.3, 0.3] },
+    rightHand:     { x: [-0.4, 0.4], y: [-0.3, 0.3], z: [-0.3, 0.3] },
+    head:          { x: [-0.4, 0.3], y: [-0.6, 0.6], z: [-0.25, 0.25] },
+    neck:          { x: [-0.3, 0.2], y: [-0.4, 0.4], z: [-0.15, 0.15] },
+    spine:         { x: [-0.15, 0.08], y: [-0.08, 0.08], z: [-0.08, 0.08] },
+    chest:         { x: [-0.1, 0.04], y: [-0.04, 0.04], z: [-0.04, 0.04] },
+    upperChest:    { x: [-0.08, 0.04], y: [-0.03, 0.03], z: [-0.03, 0.03] },
+    hips:          { x: [-0.15, 0.08], y: [-0.08, 0.08], z: [-0.08, 0.08] },
 };
 
 const BASE_POSE = {
@@ -249,18 +249,17 @@ function loop() {
                 switch (idleAction) {
                     case 'hairTouch':
                         if (at < 1) {
-                            pose.rightShoulder.x = lerp(0, -0.2, at);
-                            pose.rightUpperArm.z = lerp(-1.35, -1.7, at);
-                            pose.rightUpperArm.x = lerp(0, 0.4, at);
-                            pose.rightLowerArm.x = lerp(0, -1.0, at);
-                            // Right hand stays at base pose during hair touch
-                            pose.head.z = lerp(0, 0.05, at);
+                            pose.leftShoulder.x = lerp(0, 0.2, at);
+                            pose.leftUpperArm.z = lerp(1.35, 1.7, at);
+                            pose.leftUpperArm.x = lerp(0, -0.3, at);
+                            pose.leftLowerArm.x = lerp(0, 0.8, at);
+                            pose.head.z = lerp(0, -0.05, at);
                         } else {
-                            pose.rightShoulder.x = -0.2 + Math.sin(t * 0.5) * 0.02;
-                            pose.rightUpperArm.z = -1.7;
-                            pose.rightUpperArm.x = 0.4;
-                            pose.rightLowerArm.x = -1.0;
-                            pose.head.z = 0.05;
+                            pose.leftShoulder.x = 0.2 + Math.sin(t * 0.5) * 0.02;
+                            pose.leftUpperArm.z = 1.7;
+                            pose.leftUpperArm.x = -0.3;
+                            pose.leftLowerArm.x = 0.8;
+                            pose.head.z = -0.05;
                         }
                         if (idleActionTimer > 5) { idleAction = null; }
                         break;
@@ -401,17 +400,17 @@ export function triggerMotion(name) {
     if (name === 'dance') { startDance(); return; }
 
     switch (name) {
-        case 'wave': anim('rightUpperArm', 'x', 2.5, 400); anim('rightLowerArm', 'z', -1.0, 400); break;
+        case 'wave': anim('leftUpperArm', 'x', -2.0, 400); anim('leftLowerArm', 'z', 0.8, 400); break;
         case 'nod': anim('head', 'x', -0.3, 250); break;
         case 'laugh': face('happy', 1, 600); anim('spine', 'z', 0.1, 150); break;
-        case 'think': anim('head', 'y', 0.4, 500); anim('rightUpperArm', 'x', 1.2, 300); anim('rightLowerArm', 'z', -1.2, 300); break;
-        case 'shrug': anim('leftUpperArm', 'y', 0.6, 300); anim('rightUpperArm', 'y', 0.6, 300); break;
-        case 'tilt_head': anim('head', 'z', 0.4, 350); break;
+        case 'think': anim('head', 'y', 0.3, 500); anim('leftUpperArm', 'x', -0.5, 300); anim('leftLowerArm', 'z', 0.8, 300); break;
+        case 'shrug': anim('leftUpperArm', 'y', 0.4, 300); anim('rightUpperArm', 'y', -0.4, 300); break;
+        case 'tilt_head': anim('head', 'z', 0.3, 350); break;
         case 'surprise': face('surprised', 1, 500); anim('head', 'x', -0.25, 200); break;
-        case 'blow_kiss': anim('rightUpperArm', 'x', 1.8, 300); anim('rightLowerArm', 'z', -1.5, 300); face('happy', 0.8, 800); break;
-        case 'bow': anim('spine', 'x', 0.5, 500); anim('head', 'x', 0.3, 500); break;
-        case 'stretch': anim('leftUpperArm', 'z', -2.5, 500); anim('rightUpperArm', 'x', 2.5, 500); break;
-        case 'point': anim('rightUpperArm', 'x', 2.0, 300); anim('rightLowerArm', 'z', -0.5, 300); break;
+        case 'blow_kiss': anim('leftUpperArm', 'x', -1.5, 300); anim('leftLowerArm', 'z', 1.0, 300); face('happy', 0.8, 800); break;
+        case 'bow': anim('spine', 'x', 0.4, 500); anim('head', 'x', 0.3, 500); break;
+        case 'stretch': anim('leftUpperArm', 'z', 1.8, 500); anim('leftUpperArm', 'x', -0.5, 500); break;
+        case 'point': anim('leftUpperArm', 'x', -1.5, 300); anim('leftLowerArm', 'z', 0.3, 300); break;
     }
 }
 
@@ -431,19 +430,19 @@ export function setExpressionFromText(text) {
     const exp = expressionState;
     const lower = text.toLowerCase();
     
-    if (lower.includes('happy') || lower.includes('😊') || lower.includes('😄') || lower.includes('joy') || lower.includes('glad') || lower.includes('love') || lower.includes('wonderful') || lower.includes('amazing') || lower.includes('great')) {
+    if (lower.includes('happy') || lower.includes('khush') || lower.includes('mast') || lower.includes('awesome') || lower.includes('amazing') || lower.includes('love') || lower.includes('wonderful') || lower.includes('glad') || lower.includes('😊') || lower.includes('😄')) {
         exp.happy = Math.min(exp.happy + 0.7, 1.0);
     }
-    if (lower.includes('sad') || lower.includes('😢') || lower.includes('😭') || lower.includes('sorry') || lower.includes('unhappy') || lower.includes('disappointed') || lower.includes('upset')) {
+    if (lower.includes('sad') || lower.includes('dukh') || lower.includes('udaas') || lower.includes('dukhi') || lower.includes('sorry') || lower.includes('disappointed') || lower.includes('😢') || lower.includes('😭')) {
         exp.sad = Math.min(exp.sad + 0.7, 1.0);
     }
-    if (lower.includes('angry') || lower.includes('😠') || lower.includes('😡') || lower.includes('mad') || lower.includes('furious') || lower.includes('annoyed') || lower.includes('frustrated')) {
+    if (lower.includes('angry') || lower.includes('gussa') || lower.includes('irritated') || lower.includes('annoyed') || lower.includes('frustrated') || lower.includes('😠') || lower.includes('😡')) {
         exp.angry = Math.min(exp.angry + 0.7, 1.0);
     }
-    if (lower.includes('surprised') || lower.includes('😲') || lower.includes('😮') || lower.includes('wow') || lower.includes('omg') || lower.includes('unexpected') || lower.includes('shocked')) {
+    if (lower.includes('wow') || lower.includes('omg') || lower.includes('arre') || lower.includes('sach') || lower.includes('really') || lower.includes('shocked') || lower.includes('😲') || lower.includes('😮')) {
         exp.surprised = Math.min(exp.surprised + 0.7, 1.0);
     }
-    if (lower.includes('relaxed') || lower.includes('calm') || lower.includes('peaceful') || lower.includes('okay') || lower.includes('fine')) {
+    if (lower.includes('relaxed') || lower.includes('calm') || lower.includes('theek') || lower.includes('chill') || lower.includes('peaceful') || lower.includes('okay')) {
         exp.relaxed = Math.min(exp.relaxed + 0.5, 1.0);
     }
 }

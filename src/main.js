@@ -40,7 +40,7 @@ let isMenuOpen = false;
 let autoChatTimer = null;
 let lastAutoChat = 0;
 let thinkingMsg = null;
-let currentVoiceEngine = 'kokoro';
+let currentVoiceEngine = 'edge';
 
 // === CHAT HELPERS ===
 function addMsg(who, text, cls) {
@@ -281,7 +281,7 @@ function setupEventListeners() {
         voiceEngineSelect.addEventListener('change', function(e) {
             currentVoiceEngine = e.target.value;
             populateVoiceOptions(currentVoiceEngine);
-            var defaultProfile = currentVoiceEngine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
+            var defaultProfile = currentVoiceEngine === 'edge' ? 'edge-swara' : currentVoiceEngine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
             audio.setVoiceProfile(defaultProfile);
         });
     }

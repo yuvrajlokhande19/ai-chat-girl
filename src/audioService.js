@@ -1,27 +1,30 @@
-// audioService.js — Kokoro (Local) + Browser SpeechSynthesis
-// Minimal, no duplicates, no Edge TTS
+// audioService.js — Edge TTS (Natural Hindi) + Kokoro + Browser fallback
 
+const EDGE_TTS_URL = 'http://127.0.0.1:8881/v1/audio/speech';
 const KOKORO_URL = 'http://127.0.0.1:8880/v1/audio/speech';
-let currentVoiceProfile = 'browser-neerja';
+let currentVoiceProfile = 'edge-swara';
+let edgeTTSAvailable = true;
 let kokoroAvailable = true;
 
+const EDGE_TTS_PROFILES = {
+    'edge-swara':   { name: 'Swara (Hindi, Natural Teen Girl)', voice: 'swara', speed: 1.1, lang: 'hi-IN', engine: 'edge', desc: 'Best Hindi female voice - natural & expressive' },
+    'edge-madhur':  { name: 'Madhur (Hindi, Male)',            voice: 'madhur', speed: 1.0, lang: 'hi-IN', engine: 'edge', desc: 'Hindi male voice' },
+};
+
 const KOKORO_PROFILES = {
-    'kokoro-bella':  { name: 'Bella (Kokoro, Teen)',      voice: 'af_bella',  speed: 1.15, lang: 'en-US',  engine: 'kokoro' },
-    'kokoro-heart':  { name: 'Heart (Kokoro, Warm)',       voice: 'af_heart',  speed: 1.1,  lang: 'en-US',  engine: 'kokoro' },
-    'kokoro-sky':    { name: 'Sky (Kokoro, Cute/High)',    voice: 'af_sky',    speed: 1.2,  lang: 'en-US',  engine: 'kokoro' },
-    'kokoro-nova':   { name: 'Nova (Kokoro, Bright)',      voice: 'af_nova',   speed: 1.1,  lang: 'en-US',  engine: 'kokoro' },
+    'kokoro-bella':  { name: 'Bella (Kokoro, Teen)',  voice: 'af_bella', speed: 1.15, lang: 'en-US', engine: 'kokoro', desc: 'English teen voice' },
+    'kokoro-heart':  { name: 'Heart (Kokoro, Warm)',   voice: 'af_heart', speed: 1.1,  lang: 'en-US', engine: 'kokoro', desc: 'English warm voice' },
+    'kokoro-sky':    { name: 'Sky (Kokoro, High)',     voice: 'af_sky',   speed: 1.2,  lang: 'en-US', engine: 'kokoro', desc: 'English high-pitch voice' },
 };
 
 const BROWSER_VOICES = {
-    'browser-neerja':  { name: 'Neerja (Indian English)',    lang: 'en-IN', rate: 1.15, pitch: 1.4,  desc: 'Natural Indian English',      engine: 'browser' },
-    'browser-swara':   { name: 'Swara (Hindi)',              lang: 'hi-IN', rate: 1.0,  pitch: 1.35, desc: 'Pure Hindi female',           engine: 'browser' },
-    'browser-jenny':   { name: 'Jenny (US English, Friendly)', lang: 'en-US', rate: 1.15, pitch: 1.4,  desc: 'Friendly US teen',           engine: 'browser' },
-    'browser-aria':    { name: 'Aria (US English, Warm)',     lang: 'en-US', rate: 1.1,  pitch: 1.35, desc: 'Warm US English',             engine: 'browser' },
-    'browser-libby':   { name: 'Libby (UK English)',          lang: 'en-GB', rate: 1.1,  pitch: 1.35, desc: 'Cheerful UK English',         engine: 'browser' },
+    'browser-neerja':  { name: 'Neerja (Indian English)',    lang: 'en-IN', rate: 1.15, pitch: 1.4, engine: 'browser', desc: 'Browser fallback - Indian English' },
+    'browser-swara':   { name: 'Swara (Hindi, Browser)',     lang: 'hi-IN', rate: 1.0,  pitch: 1.35, engine: 'browser', desc: 'Browser fallback - Hindi' },
+    'browser-jenny':   { name: 'Jenny (US English)',         lang: 'en-US', rate: 1.15, pitch: 1.4, engine: 'browser', desc: 'Browser fallback - US English' },
 };
 
-const ALL_PROFILES = { ...KOKORO_PROFILES, ...BROWSER_VOICES };
-const SAMPLE_TEXT = "Hello, am Sia! Main aapke liye kya karu?";
+const ALL_PROFILES = { ...EDGE_TTS_PROFILES, ...KOKORO_PROFILES, ...BROWSER_VOICES };
+const SAMPLE_TEXT = "Hello! Main Chloe hoon, kya haal hai?";
 
 function filterTextForSpeech(text) {
     let f = text.replace(/:[a-zA-Z0-9_+-]+:/g, '');
@@ -76,39 +79,89 @@ async function fetchTTS(text, volCallback, profileOverride) {
     const clean = filterTextForSpeech(text);
     if (!clean) { if (volCallback) volCallback(0); return; }
 
-    if (!kokoroAvailable) return browserTTS(clean, volCallback);
+    // Determine which engine to use
+    const profileKey = profileOverride || currentVoiceProfile;
+    const isEdge = profileKey.startsWith('edge-');
+    const isKokoro = profileKey.startsWith('kokoro-');
 
-    const profile = (profileOverride && KOKORO_PROFILES[profileOverride])
-        ? KOKORO_PROFILES[profileOverride]
-        : KOKORO_PROFILES['kokoro-bella'];
-
-    try {
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 10000);
-        const res = await fetch(KOKORO_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: clean, model: 'kokoro-82m', voice: profile.voice, speed: profile.speed }),
-            signal: ctrl.signal,
-        });
-        clearTimeout(tid);
-        if (res.ok) {
-            const blob = await res.blob();
-            return playBlob(blob, volCallback);
+    // Try Edge TTS first (best Hindi voice)
+    if (isEdge && edgeTTSAvailable) {
+        const profile = EDGE_TTS_PROFILES[profileKey] || EDGE_TTS_PROFILES['edge-swara'];
+        try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 15000);
+            const res = await fetch(EDGE_TTS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: clean, voice: profile.voice, speed: profile.speed }),
+                signal: ctrl.signal,
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+                const blob = await res.blob();
+                return playBlob(blob, volCallback);
+            }
+            throw new Error('HTTP ' + res.status);
+        } catch (e) {
+            console.warn('[Audio] Edge TTS failed:', e.message);
+            edgeTTSAvailable = false;
         }
-        throw new Error('HTTP ' + res.status);
-    } catch (e) {
-        console.warn('[Audio] Kokoro unavailable, using browser fallback:', e.message);
-        kokoroAvailable = false;
-        return browserTTS(clean, volCallback);
     }
+
+    // Try Kokoro second
+    if (isKokoro && kokoroAvailable) {
+        const profile = KOKORO_PROFILES[profileKey] || KOKORO_PROFILES['kokoro-bella'];
+        try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 10000);
+            const res = await fetch(KOKORO_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: clean, model: 'kokoro-82m', voice: profile.voice, speed: profile.speed }),
+                signal: ctrl.signal,
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+                const blob = await res.blob();
+                return playBlob(blob, volCallback);
+            }
+            throw new Error('HTTP ' + res.status);
+        } catch (e) {
+            console.warn('[Audio] Kokoro failed:', e.message);
+            kokoroAvailable = false;
+        }
+    }
+
+    // Fallback: try Edge TTS even if profile isn't edge (auto-fallback)
+    if (edgeTTSAvailable && !isEdge) {
+        try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 15000);
+            const res = await fetch(EDGE_TTS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: clean, voice: 'swara', speed: 1.1 }),
+                signal: ctrl.signal,
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+                const blob = await res.blob();
+                return playBlob(blob, volCallback);
+            }
+        } catch (e) {
+            edgeTTSAvailable = false;
+        }
+    }
+
+    // Final fallback: Browser SpeechSynthesis
+    return browserTTS(clean, volCallback);
 }
 
 function browserTTS(text, volCallback) {
     return new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance(text);
         const prof = BROWSER_VOICES[currentVoiceProfile];
-        const lang = prof ? prof.lang : 'en-IN';
+        const lang = prof ? prof.lang : 'hi-IN';
         const rate = prof ? prof.rate : 1.15;
         const pitch = prof ? prof.pitch : 1.4;
 
@@ -148,9 +201,10 @@ function getAllVoiceProfiles() {
 
 async function testVoice(profile, customText) {
     const text = customText || SAMPLE_TEXT;
+    if (EDGE_TTS_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
     if (KOKORO_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
-    if (BROWSER_VOICES[profile]) return browserTTS(text, () => {}, profile);
-    return browserTTS(text, () => {});
+    if (BROWSER_VOICES[profile]) return browserTTS(text, () => {});
+    return fetchTTS(text, () => {});
 }
 
 function setupSpeechRecognition(onResult, onStatus) {

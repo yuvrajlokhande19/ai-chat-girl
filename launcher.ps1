@@ -25,6 +25,25 @@ function Show-Menu {
     Write-Host ""
 }
 
+function Start-TTSServer {
+    try {
+        Invoke-WebRequest -Uri "http://127.0.0.1:8881/health" -Method GET -ErrorAction Stop -TimeoutSec 2 | Out-Null
+        Write-Host "  Edge-TTS server already running." -ForegroundColor Green
+        return
+    } catch {
+        # not running, start it
+    }
+    Write-Host "  Starting Edge-TTS server (Hindi voice)..." -ForegroundColor Yellow
+    $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $processInfo.FileName = "python"
+    $processInfo.Arguments = "`"$projectDir\tts_server.py`""
+    $processInfo.UseShellExecute = $true
+    $processInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Minimized
+    [System.Diagnostics.Process]::Start($processInfo) | Out-Null
+    Start-Sleep 2
+    Write-Host "  Edge-TTS server started on port 8881." -ForegroundColor Green
+}
+
 function Start-OllamaIfneeded {
     $running = Get-Process -Name ollama -ErrorAction SilentlyContinue
     if (-not $running) {
@@ -74,6 +93,7 @@ while ($true) {
         "O" {
             Write-Host ""
             Start-OllamaIfneeded
+            Start-TTSServer
             Start-ViteServer
             Open-Browser
             Write-Host ""
@@ -86,6 +106,7 @@ while ($true) {
             Stop-Servers
             Start-Sleep 1
             Start-OllamaIfneeded
+            Start-TTSServer
             Start-ViteServer
             Open-Browser
             Write-Host ""
@@ -129,6 +150,12 @@ while ($true) {
             } catch {
                 Write-Host "  [OFF] Ollama API not reachable" -ForegroundColor Red
             }
+            try {
+                Invoke-WebRequest -Uri "http://127.0.0.1:8881/health" -Method GET -ErrorAction Stop -TimeoutSec 3 | Out-Null
+                Write-Host "  [OK] Edge-TTS server running" -ForegroundColor Green
+            } catch {
+                Write-Host "  [OFF] Edge-TTS not reachable" -ForegroundColor Red
+            }
             Write-Host ""
             pause
         }
@@ -146,3 +173,4 @@ while ($true) {
         }
     }
 }
+
