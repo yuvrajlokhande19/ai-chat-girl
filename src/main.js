@@ -21,10 +21,9 @@ const menuDropdown = document.getElementById('menu-dropdown');
 const bgColorPicker = document.getElementById('bg-color-picker');
 const bgUrlInput = document.getElementById('bg-url-input');
 const bgImageUpload = document.getElementById('bg-image-upload');
-const voiceSelect = document.getElementById('voice-select');
 const avatarStatusText = document.querySelector('#avatar-status .status-text');
 
-// Voice testing elements (from dynamic menu)
+// Voice testing elements
 const voiceEngineSelect = document.getElementById('voice-engine');
 const voiceSelectContainer = document.getElementById('voice-select-container');
 const voiceTestBtn = document.getElementById('voice-test-btn');
@@ -41,6 +40,7 @@ let isMenuOpen = false;
 let autoChatTimer = null;
 let lastAutoChat = 0;
 let thinkingMsg = null;
+let currentVoiceEngine = 'kokoro';
 
 // === CHAT HELPERS ===
 function addMsg(who, text, cls) {
@@ -64,7 +64,7 @@ function setStatus(text, type) {
     statusBadge.className = type ? type : '';
 }
 
-// === THINKING ANIMATION (Fluid Color Simulation) ===
+// === THINKING ANIMATION ===
 function showThinking() {
     thinkingMsg = addMsg('Chloe', '', 'msg-chloe thinking');
     thinkingMsg.innerHTML = '<div class="thinking-animation"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div><div class="msg-time">' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</div>';
@@ -73,10 +73,7 @@ function showThinking() {
 }
 
 function hideThinking() {
-    if (thinkingMsg) {
-        thinkingMsg.remove();
-        thinkingMsg = null;
-    }
+    if (thinkingMsg) { thinkingMsg.remove(); thinkingMsg = null; }
 }
 
 // === AUTONOMOUS CHAT (Hinglish) ===
@@ -165,6 +162,33 @@ async function processText(text) {
     if (vizFill) vizFill.style.width = '0%';
 }
 
+// === VOICE POPULATION ===
+function populateVoiceOptions(engine) {
+    voiceSelectContainer.innerHTML = '';
+    var select = document.createElement('select');
+    select.id = 'voice-select';
+    select.style.cssText = 'padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;width:100%;';
+    var profiles = audio.getAllVoiceProfiles();
+    var found = false;
+    Object.entries(profiles).forEach(function(entry) {
+        var key = entry[0];
+        var v = entry[1];
+        if (v.engine === engine) {
+            var opt = document.createElement('option');
+            opt.value = key;
+            opt.textContent = v.name + (v.desc ? ' - ' + v.desc : '');
+            select.appendChild(opt);
+            if (!found) { select.value = key; found = true; }
+        }
+    });
+    voiceSelectContainer.appendChild(select);
+    select.addEventListener('change', function(e) {
+        audio.setVoiceProfile(e.target.value);
+        addMsg('System', 'Voice: ' + e.target.selectedOptions[0].text, 'msg-sys');
+    });
+}
+
+// === INIT APP ===
 async function initApp() {
     wakeModal.classList.add('fade-out');
     setTimeout(function() { wakeModal.style.display = 'none'; }, 800);
@@ -220,8 +244,6 @@ function setupEventListeners() {
         vrmManager.setBackground(e.target.value);
         addMsg('System', 'Background color: ' + e.target.value, 'msg-sys');
     });
-    var bgUrlAddBtn = document.getElementById('bg-url-add');
-    var bgUrlInput = document.getElementById('bg-url-input');
     if (bgUrlAddBtn) {
         bgUrlAddBtn.addEventListener('click', function() {
             var url = bgUrlInput.value.trim();
@@ -242,8 +264,6 @@ function setupEventListeners() {
             }
         }
     });
-    var bgFileAddBtn = document.getElementById('bg-file-add');
-    var bgImageUpload = document.getElementById('bg-image-upload');
     if (bgFileAddBtn) {
         bgFileAddBtn.addEventListener('click', function() { bgImageUpload.click(); });
     }
@@ -255,59 +275,26 @@ function setupEventListeners() {
             addMsg('System', 'Background: ' + file.name, 'msg-sys');
         }
     });
-    var voiceEngineSelect = document.getElementById('voice-engine');
-    var voiceSelectContainer = document.getElementById('voice-select-container');
-    var voiceTestBtn = document.getElementById('voice-test-btn');
-    var voiceStopBtn = document.getElementById('voice-stop-btn');
-    var voiceTestText = document.getElementById('voice-test-text');
-    var voiceTestStatus = document.getElementById('voice-test-status');
-    var currentVoiceEngine = 'edge';
-    function populateVoiceOptions(engine) {
-        voiceSelectContainer.innerHTML = '';
-        var select = document.createElement('select');
-        select.id = 'voice-select';
-        select.style.cssText = 'padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;width:100%;';
-        var profiles = audio.getAllVoiceProfiles();
-        Object.entries(profiles).forEach(function(entry) {
-            var key = entry[0];
-            var v = entry[1];
-            if (v.engine === engine || (engine === 'browser' && v.engine === 'browser')) {
-                var opt = document.createElement('option');
-                opt.value = key;
-                opt.textContent = v.name + (v.desc ? ' - ' + v.desc : '');
-                select.appendChild(opt);
-            }
-        });
-        voiceSelectContainer.appendChild(select);
-        select.addEventListener('change', function(e) {
-            audio.setVoiceProfile(e.target.value);
-            addMsg('System', 'Voice: ' + e.target.selectedOptions[0].text, 'msg-sys');
-        });
-        if (engine === 'edge') select.value = 'edge-neerja-expressive';
-        else if (engine === 'kokoro') select.value = 'kokoro-bella';
-        else select.value = 'browser-neerja';
-    }
-    var voiceEngineSelect = document.getElementById('voice-engine');
+
+    // Voice engine switcher
     if (voiceEngineSelect) {
         voiceEngineSelect.addEventListener('change', function(e) {
             currentVoiceEngine = e.target.value;
             populateVoiceOptions(currentVoiceEngine);
-            audio.setVoiceProfile(currentVoiceEngine === 'edge' ? 'edge-neerja-expressive' : currentVoiceEngine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja');
+            var defaultProfile = currentVoiceEngine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
+            audio.setVoiceProfile(defaultProfile);
         });
     }
     populateVoiceOptions(currentVoiceEngine);
-    var voiceTestBtn = document.getElementById('voice-test-btn');
-    var voiceStopBtn = document.getElementById('voice-stop-btn');
-    var voiceTestText = document.getElementById('voice-test-text');
-    var voiceTestStatus = document.getElementById('voice-test-status');
-    var voiceTestBtnEl = document.getElementById('voice-test-btn');
-    if (voiceTestBtnEl) {
-        voiceTestBtnEl.addEventListener('click', async function() {
+
+    // Voice test
+    if (voiceTestBtn) {
+        voiceTestBtn.addEventListener('click', async function() {
             var select = document.getElementById('voice-select');
-            var profile = select.value;
+            var profile = select ? select.value : 'browser-neerja';
             var text = voiceTestText.value.trim() || "Hello, am Sia! Main aapke liye kya karu?";
-            voiceTestBtnEl.disabled = true;
-            voiceTestBtnEl.textContent = '... Playing';
+            voiceTestBtn.disabled = true;
+            voiceTestBtn.textContent = '... Playing';
             voiceTestStatus.textContent = 'Playing sample...';
             voiceTestStatus.style.color = 'var(--accent)';
             try {
@@ -318,22 +305,22 @@ function setupEventListeners() {
                 voiceTestStatus.textContent = 'Error: ' + e.message;
                 voiceTestStatus.style.color = '#ef4444';
             } finally {
-                voiceTestBtnEl.disabled = false;
-                voiceTestBtnEl.textContent = '▶ Play Sample';
+                voiceTestBtn.disabled = false;
+                voiceTestBtn.textContent = '▶ Play Sample';
             }
         });
     }
-    var voiceStopBtnEl = document.getElementById('voice-stop-btn');
-    if (voiceStopBtnEl) {
-        voiceStopBtnEl.addEventListener('click', function() {
+    if (voiceStopBtn) {
+        voiceStopBtn.addEventListener('click', function() {
             audio.stopSpeaking();
-            voiceTestBtnEl.disabled = false;
-            voiceTestBtnEl.textContent = '▶ Play Sample';
+            voiceTestBtn.disabled = false;
+            voiceTestBtn.textContent = '▶ Play Sample';
             voiceTestStatus.textContent = 'Stopped';
             voiceTestStatus.style.color = 'var(--orange)';
         });
     }
-    populateVoiceOptions(currentVoiceEngine);
+
+    // VRM upload
     vrmUpload.addEventListener('change', function(e) {
         var f = e.target.files[0];
         if (f && f.name.endsWith('.vrm')) {
@@ -351,6 +338,8 @@ function setupEventListeners() {
             addMsg('System', 'Avatar: ' + f.name, 'msg-sys');
         }
     });
+
+    // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             if (isMenuOpen) {
@@ -368,5 +357,7 @@ function setupEventListeners() {
     canvasEl.addEventListener('click', function() {
         if (!isListening) inputEl.focus();
     });
-    setupEventListeners();
 }
+
+// === BOOT ===
+setupEventListeners();
