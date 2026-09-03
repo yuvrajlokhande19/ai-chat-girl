@@ -125,6 +125,8 @@ function speakWithExpression(text) {
     else if (lower.includes('sad') || lower.includes('udaas') || lower.includes('dukhi')) vrmManager.triggerMotion('lookAround');
     else if (lower.includes('happy') || lower.includes('khush') || lower.includes('mast')) vrmManager.triggerMotion('hairTouch');
     else if (lower.includes('soch') || lower.includes('think')) vrmManager.triggerMotion('think');
+    // Set face to match the emotional tone of what she's saying
+    vrmManager.setEmotionExpression(audio.detectEmotion(text));
     audio.fetchTTS(text, function(vol) {
         vrmManager.setMouth(vol);
         if (vizFill) vizFill.style.width = (vol * 100) + '%';
@@ -149,7 +151,12 @@ async function processText(text) {
         thinkingMsg = addMsg('Chloe', r.cleanText, 'msg-chloe');
         thinkingMsg.innerHTML = '<b>Chloe:</b> ' + escapeHtml(r.cleanText) + '<div class="msg-time">' + time + '</div>';
         r.motionTags.forEach(function(t) { vrmManager.triggerMotion(t); });
-        vrmManager.setExpressionFromText(r.cleanText);
+        // Match her face to the emotion of her reply (smile, angry if bad, excited, etc.)
+        var responseEmotion = audio.detectEmotion(r.cleanText);
+        vrmManager.setEmotionExpression(responseEmotion);
+        if (responseEmotion === 'angry' && /(gussa|angry|mad|hate|nonsense|bakwas)/.test(r.cleanText.toLowerCase())) {
+            vrmManager.setExpressionFromText(r.cleanText);
+        }
         await audio.fetchTTS(r.cleanText, function(vol) {
             vrmManager.setMouth(vol);
             if (vizFill) vizFill.style.width = (vol * 100) + '%';
@@ -286,6 +293,25 @@ function setupEventListeners() {
         });
     }
     populateVoiceOptions(currentVoiceEngine);
+
+    // "Use This Voice" button - applies the currently selected voice permanently
+    var voiceApplyBtn = document.getElementById('voice-apply-btn');
+    if (voiceApplyBtn) {
+        voiceApplyBtn.addEventListener('click', function() {
+            var select = document.getElementById('voice-select');
+            var profile = select ? select.value : currentVoiceProfile;
+            if (!audio.getVoiceProfile || profile) {
+                audio.setVoiceProfile(profile);
+                avatarStatusText.textContent = 'Voice: ' + (select ? select.selectedOptions[0].text.split(' (')[0] : profile);
+                var statusEl = document.getElementById('voice-test-status');
+                if (statusEl) {
+                    statusEl.textContent = 'Voice applied: ' + (select ? select.selectedOptions[0].text : profile);
+                    statusEl.style.color = 'var(--green)';
+                }
+                addMsg('System', 'Voice applied: ' + (select ? select.selectedOptions[0].text : profile), 'msg-sys');
+            }
+        });
+    }
 
     // Voice test
     if (voiceTestBtn) {

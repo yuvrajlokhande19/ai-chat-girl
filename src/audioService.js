@@ -1,4 +1,4 @@
-// audioService.js — Edge TTS (Natural Hindi) + Kokoro + Browser fallback
+// audioService.js — Edge TTS (Natural Indian voices + emotions) + Kokoro + Browser fallback
 
 const EDGE_TTS_URL = 'http://127.0.0.1:8881/v1/audio/speech';
 const KOKORO_URL = 'http://127.0.0.1:8880/v1/audio/speech';
@@ -7,8 +7,14 @@ let edgeTTSAvailable = true;
 let kokoroAvailable = true;
 
 const EDGE_TTS_PROFILES = {
-    'edge-swara':   { name: 'Swara (Hindi, Natural Teen Girl)', voice: 'swara', speed: 1.1, lang: 'hi-IN', engine: 'edge', desc: 'Best Hindi female voice - natural & expressive' },
-    'edge-madhur':  { name: 'Madhur (Hindi, Male)',            voice: 'madhur', speed: 1.0, lang: 'hi-IN', engine: 'edge', desc: 'Hindi male voice' },
+    'edge-swara':    { name: 'Swara (Hindi, Natural Girl)',  voice: 'swara', speed: 1.1, lang: 'hi-IN', engine: 'edge', desc: 'Pure Hindi girl voice' },
+    'edge-neerja':   { name: 'Neerja (Indian English, Expressive)', voice: 'neerja', speed: 1.05, lang: 'en-IN', engine: 'edge', desc: 'Expressive Indian English - great for Hinglish' },
+    'edge-neerja2':  { name: 'Neerja Clear (Indian English)', voice: 'neerja-classic', speed: 1.0, lang: 'en-IN', engine: 'edge', desc: 'Clear Indian English' },
+    'edge-arohi':    { name: 'Aarohi (Marathi, Female)',     voice: 'arohi', speed: 1.0, lang: 'mr-IN', engine: 'edge', desc: 'Marathi girl voice' },
+    'edge-dhwani':   { name: 'Dhwani (Gujarati, Female)',    voice: 'dhwani', speed: 1.0, lang: 'gu-IN', engine: 'edge', desc: 'Gujarati girl voice' },
+    'edge-shruti':   { name: 'Shruti (Telugu, Female)',      voice: 'shruti', speed: 1.0, lang: 'te-IN', engine: 'edge', desc: 'Telugu girl voice' },
+    'edge-tanishaa': { name: 'Tanishaa (Bengali, Female)',   voice: 'tanishaa', speed: 1.0, lang: 'bn-IN', engine: 'edge', desc: 'Bengali girl voice' },
+    'edge-madhur':   { name: 'Madhur (Hindi, Male)',         voice: 'madhur', speed: 1.0, lang: 'hi-IN', engine: 'edge', desc: 'Hindi male voice' },
 };
 
 const KOKORO_PROFILES = {
@@ -18,18 +24,42 @@ const KOKORO_PROFILES = {
 };
 
 const BROWSER_VOICES = {
-    'browser-neerja':  { name: 'Neerja (Indian English)',    lang: 'en-IN', rate: 1.15, pitch: 1.4, engine: 'browser', desc: 'Browser fallback - Indian English' },
     'browser-swara':   { name: 'Swara (Hindi, Browser)',     lang: 'hi-IN', rate: 1.0,  pitch: 1.35, engine: 'browser', desc: 'Browser fallback - Hindi' },
+    'browser-neerja':  { name: 'Neerja (Indian English)',    lang: 'en-IN', rate: 1.15, pitch: 1.4, engine: 'browser', desc: 'Browser fallback - Indian English' },
     'browser-jenny':   { name: 'Jenny (US English)',         lang: 'en-US', rate: 1.15, pitch: 1.4, engine: 'browser', desc: 'Browser fallback - US English' },
 };
 
 const ALL_PROFILES = { ...EDGE_TTS_PROFILES, ...KOKORO_PROFILES, ...BROWSER_VOICES };
-const SAMPLE_TEXT = "Hello! Main Chloe hoon, kya haal hai?";
+const SAMPLE_TEXT = "Hello! Main Chloe hoon, kya haal hai? Aaj toh bahut mast lag rahe ho!";
 
 function filterTextForSpeech(text) {
     let f = text.replace(/:[a-zA-Z0-9_+-]+:/g, '');
     f = f.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}]/gu, '');
     return f.replace(/\s+/g, ' ').trim();
+}
+
+// Detect the emotional tone of text so Chloe sounds right AND expressions match
+function detectEmotion(text) {
+    const t = text.toLowerCase();
+    const count = (words) => words.reduce((n, w) => n + (t.includes(w) ? 1 : 0), 0);
+
+    const excited = count(['wow', 'omg', 'yay', 'so excited', 'amazing', 'awesome', 'mast', 'badhiya', 'jhakaas', 'kya baat', '😍', '😃', '🤩']);
+    const happy = count(['happy', 'great', 'nice', 'cool', 'love', 'fun', 'khush', 'accha', 'achha', 'theek', '😊', '😄', '🙂']);
+    const sad = count(['sad', 'sorry', 'unhappy', 'cry', 'dukh', 'udaas', '😢', '😭', '🥺', 'hurt', 'alone', 'miss']);
+    const angry = count(['angry', 'mad', 'gussa', 'annoyed', 'frustrated', 'irritated', 'stupid', 'hate', '😠', '😡', 'nonsense', 'bakwas']);
+    const surprised = count(['shocked', 'wow', 'really', 'arre', 'sach', 'seriously', 'unbelievable', '😲', '😮', 'surprise']);
+    const funny = count(['haha', 'lol', 'joke', 'funny', 'mazaak', 'hasna', '😂', '🤣', 'lmao', 'rofl']);
+
+    const scores = [
+        { e: 'excited', s: excited * 2 },
+        { e: 'sad', s: sad * 2 },
+        { e: 'angry', s: angry * 2 },
+        { e: 'surprised', s: surprised * 1.5 },
+        { e: 'funny', s: funny },
+        { e: 'happy', s: happy },
+    ];
+    scores.sort((a, b) => b.s - a.s);
+    return scores[0].s > 0 ? scores[0].e : 'neutral';
 }
 
 function getBrowserVoice(lang) {
@@ -79,12 +109,12 @@ async function fetchTTS(text, volCallback, profileOverride) {
     const clean = filterTextForSpeech(text);
     if (!clean) { if (volCallback) volCallback(0); return; }
 
-    // Determine which engine to use
     const profileKey = profileOverride || currentVoiceProfile;
     const isEdge = profileKey.startsWith('edge-');
     const isKokoro = profileKey.startsWith('kokoro-');
+    const emotion = detectEmotion(text);
 
-    // Try Edge TTS first (best Hindi voice)
+    // Try Edge TTS first (best Indian voice)
     if (isEdge && edgeTTSAvailable) {
         const profile = EDGE_TTS_PROFILES[profileKey] || EDGE_TTS_PROFILES['edge-swara'];
         try {
@@ -93,7 +123,7 @@ async function fetchTTS(text, volCallback, profileOverride) {
             const res = await fetch(EDGE_TTS_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: clean, voice: profile.voice, speed: profile.speed }),
+                body: JSON.stringify({ text: clean, voice: profile.voice, speed: profile.speed, emotion }),
                 signal: ctrl.signal,
             });
             clearTimeout(tid);
@@ -108,7 +138,7 @@ async function fetchTTS(text, volCallback, profileOverride) {
         }
     }
 
-    // Try Kokoro second
+    // Try Kokoro
     if (isKokoro && kokoroAvailable) {
         const profile = KOKORO_PROFILES[profileKey] || KOKORO_PROFILES['kokoro-bella'];
         try {
@@ -132,7 +162,7 @@ async function fetchTTS(text, volCallback, profileOverride) {
         }
     }
 
-    // Fallback: try Edge TTS even if profile isn't edge (auto-fallback)
+    // Auto Edge fallback for non-edge profiles
     if (edgeTTSAvailable && !isEdge) {
         try {
             const ctrl = new AbortController();
@@ -140,7 +170,7 @@ async function fetchTTS(text, volCallback, profileOverride) {
             const res = await fetch(EDGE_TTS_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: clean, voice: 'swara', speed: 1.1 }),
+                body: JSON.stringify({ text: clean, voice: 'swara', speed: 1.1, emotion }),
                 signal: ctrl.signal,
             });
             clearTimeout(tid);
@@ -153,26 +183,31 @@ async function fetchTTS(text, volCallback, profileOverride) {
         }
     }
 
-    // Final fallback: Browser SpeechSynthesis
-    return browserTTS(clean, volCallback);
+    return browserTTS(clean, volCallback, emotion);
 }
 
-function browserTTS(text, volCallback) {
+function browserTTS(text, volCallback, emotion) {
     return new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance(text);
         const prof = BROWSER_VOICES[currentVoiceProfile];
         const lang = prof ? prof.lang : 'hi-IN';
-        const rate = prof ? prof.rate : 1.15;
-        const pitch = prof ? prof.pitch : 1.4;
+        let rate = prof ? prof.rate : 1.15;
+        let pitch = prof ? prof.pitch : 1.4;
+
+        // Apply emotion via pitch/rate for browser voices too
+        if (emotion === 'excited' || emotion === 'surprised') { pitch += 0.3; rate += 0.1; }
+        else if (emotion === 'sad') { pitch -= 0.3; rate -= 0.1; }
+        else if (emotion === 'angry') { rate += 0.1; }
+        else if (emotion === 'funny') { pitch += 0.15; }
 
         const voice = getBrowserVoice(lang);
         if (voice) u.voice = voice;
         u.lang = lang;
-        u.rate = rate;
-        u.pitch = pitch;
+        u.rate = Math.max(0.5, Math.min(2, rate));
+        u.pitch = Math.max(0, Math.min(2, pitch));
         u.volume = 1.0;
 
-        if (/[\u0900-\u097F]/.test(text)) { u.lang = 'hi-IN'; u.rate = 1.0; u.pitch = 1.35; }
+        if (/[\u0900-\u097F]/.test(text)) { u.lang = 'hi-IN'; u.rate = Math.min(u.rate, 1.1); }
 
         const iv = setInterval(() => { if (volCallback) volCallback(0.1 + Math.random() * 0.4); }, 60);
         u.onend = () => { clearInterval(iv); if (volCallback) volCallback(0); resolve(); };
@@ -203,7 +238,7 @@ async function testVoice(profile, customText) {
     const text = customText || SAMPLE_TEXT;
     if (EDGE_TTS_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
     if (KOKORO_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
-    if (BROWSER_VOICES[profile]) return browserTTS(text, () => {});
+    if (BROWSER_VOICES[profile]) return fetchTTS(text, () => {}, profile);
     return fetchTTS(text, () => {});
 }
 
@@ -232,4 +267,5 @@ export {
     getAllVoiceProfiles,
     testVoice,
     setupSpeechRecognition,
+    detectEmotion,
 };

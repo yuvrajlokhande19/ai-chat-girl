@@ -446,3 +446,17 @@ export function setExpressionFromText(text) {
         exp.relaxed = Math.min(exp.relaxed + 0.5, 1.0);
     }
 }
+
+// Set facial expression directly from a detected emotion (used while talking)
+// so her face matches how she speaks (excited/sad/angry/funny...)
+export function setEmotionExpression(emotion, strength = 0.8) {
+    if (!currentVRM || !currentVRM.expressionManager) return;
+    const exp = expressionState;
+
+    if (emotion === 'excited') { exp.happy = Math.min(exp.happy + strength, 1); exp.surprised = Math.min(exp.surprised + strength * 0.5, 1); }
+    else if (emotion === 'happy' || emotion === 'funny') { exp.happy = Math.min(exp.happy + strength, 1); }
+    else if (emotion === 'sad') { exp.sad = Math.min(exp.sad + strength, 1); }
+    else if (emotion === 'angry') { exp.angry = Math.min(exp.angry + strength, 1); }
+    else if (emotion === 'surprised') { exp.surprised = Math.min(exp.surprised + strength, 1); }
+    else if (emotion === 'calm' || emotion === 'neutral') { exp.relaxed = Math.min(exp.relaxed + strength * 0.5, 1); }
+}
