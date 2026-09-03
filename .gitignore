@@ -1,8 +1,4 @@
 node_modules/
 dist/
-.vite/
-*.log
-.DS_Store
-VSeeFace/
-client-finder-backup/
-package-lock.json
+__pycache__/
+*.pyc
