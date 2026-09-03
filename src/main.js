@@ -44,7 +44,9 @@ let autoChatTimer = null;
 let lastAutoChat = 0;
 let lastUserMessage = 0;
 let thinkingMsg = null;
-let currentVoiceEngine = 'elevenlabs';
+// Sarvam AI is the default voice engine (free Indian girl voice, requires no
+// local server). Edge/Kokoro/browser remain as offline fallbacks.
+let currentVoiceEngine = 'sarvam';
 let appStarted = false;
 
 // === CHAT HELPERS ===
@@ -179,6 +181,18 @@ async function processText(text) {
 
         r.motionTags.forEach(function(t) { vrmManager.triggerMotion(t); });
         applyExpressionAction(r.expression || replyText);
+        // AI "body brain": use the LOCAL model to pick a fitting pose for the
+        // reply (falls back to keyword matching if the local model is off).
+        try {
+            const fallbackPose = vrmManager.matchPose(replyText);
+            const ap = await model.chooseAIPose(replyText, fallbackPose);
+            if (ap && ap.pose) {
+                vrmManager.triggerMotion(ap.pose);
+                if (ap.emotion) vrmManager.setEmotionExpression(ap.emotion, 0.8);
+            }
+        } catch (e) {
+            try { vrmManager.triggerMotion(vrmManager.matchPose(replyText)); } catch (e2) {}
+        }
         await audio.fetchTTS(r.cleanText, function(vol) {
             vrmManager.setMouth(vol);
             if (vizFill) vizFill.style.width = (vol * 100) + '%';
@@ -212,11 +226,35 @@ function populateVoiceOptions(engine) {
         }
     });
     voiceSelectContainer.appendChild(select);
-    var profileDefault = engine === 'elevenlabs' ? 'eleven-arohi' : engine === 'edge' ? 'edge-arohi' : engine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
+    var profileDefault = engine === 'elevenlabs' ? 'eleven-arohi' : engine === 'sarvam' ? 'sarvam-kavya' : engine === 'edge' ? 'edge-arohi' : engine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
     if (audio.getAllVoiceProfiles()[profileDefault]) audio.setVoiceProfile(profileDefault);
     select.addEventListener('change', function(e) {
         audio.setVoiceProfile(e.target.value);
         addMsg('System', 'Voice: ' + e.target.selectedOptions[0].text, 'msg-sys');
+    });
+}
+
+// Builds the "Poses & Moves" buttons in the three-dot menu from the pose
+// registry exported by vrmManager. Clicking a button triggers that pose.
+function buildPoseButtons() {
+    var container = document.getElementById('pose-buttons');
+    if (!container || !vrmManager.getPoseList) return;
+    var poses = vrmManager.getPoseList();
+    Object.entries(poses).forEach(function(e) {
+        var key = e[0];
+        var p = e[1];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'menu-btn-small';
+        btn.style.cssText += 'padding:6px 10px;background:rgba(30,41,59,0.4);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;font-weight:600;font-size:11px;cursor:pointer;';
+        btn.textContent = p.label;
+        btn.title = p.desc;
+        btn.addEventListener('click', function() {
+            vrmManager.triggerMotion(key);
+            if (p.emotion) vrmManager.setEmotionExpression(p.emotion, 0.8);
+            addMsg('Arohi', 'Pose: ' + p.label, 'msg-sys');
+        });
+        container.appendChild(btn);
     });
 }
 
@@ -349,6 +387,7 @@ function setupEventListeners() {
             populateVoiceOptions(currentVoiceEngine);
         });
     }
+    if (voiceEngineSelect) voiceEngineSelect.value = currentVoiceEngine;
     populateVoiceOptions(currentVoiceEngine);
 
     // "Use This Voice" button
@@ -410,6 +449,26 @@ function setupEventListeners() {
         }
         vrmUpload.value = '';
     });
+
+    // VRM built-in model picker (default vs upload)
+    var vrmModelSelect = document.getElementById('vrm-model-select');
+    if (vrmModelSelect) {
+        vrmModelSelect.addEventListener('change', function(e) {
+            if (e.target.value === 'default') {
+                vrmManager.init(canvasEl, '/GIRL1.vrm');
+                addMsg('System', 'Avatar: Arohi (Default)', 'msg-sys');
+            } else if (e.target.value === 'upload') {
+                vrmUpload.click();
+                e.target.value = 'default';
+            }
+        });
+    }
+
+    // Pose & move buttons in the three-dot menu (built from the pose registry).
+    var poseContainer = document.getElementById('pose-buttons');
+    if (poseContainer) {
+        buildPoseButtons();
+    }
     canvasEl.addEventListener('dragover', function(e) { e.preventDefault(); });
     canvasEl.addEventListener('drop', function(e) {
         e.preventDefault();

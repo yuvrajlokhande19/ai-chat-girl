@@ -188,3 +188,53 @@ function parseReply(text) {
   if (exprMatch) cleanText = cleanText.replace(/^\s*\*[^*]+\*\s*/, '').trim();
   return { cleanText, motionTags, expression };
 }
+
+// The AI "body brain": asks the LOCAL model (Ollama/gemma) to choose ONE valid
+// pose + emotion to match Arohi's reply, so her body movement feels alive and
+// the AI "navigates" her movements. The answer is bounded to valid pose keys so
+// it can never pick a broken/unwanted pose. Falls back to vrmManager's
+// keyword matcher (offline-safe) if Ollama isn't running.
+const VALID_POSES = [
+  'wave_hi', 'wave_both', 'spread_arms', 'happy_bounce', 'hands_hip',
+  'lean_cool', 'nod', 'tilt_head', 'think', 'shrug', 'point', 'cross_arms',
+  'blow_kiss', 'salute', 'bow', 'stretch', 'flip_hair', 'laugh', 'surprise', 'dance',
+];
+const VALID_EMOTIONS = ['happy', 'excited', 'sad', 'angry', 'surprised', 'calm', 'neutral'];
+
+export async function chooseAIPose(replyText, fallbackPose) {
+  const fallback = fallbackPose || 'nod';
+  try {
+    const prompt =
+      'Arohi (a teenage girl avatar) just said: "' + String(replyText).slice(0, 500) + '".\n' +
+      'React with exactly ONE pose and ONE emotion that best matches her tone.\n' +
+      'Allowed poses: ' + VALID_POSES.join(', ') + '.\n' +
+      'Allowed emotions: ' + VALID_EMOTIONS.join(', ') + '.\n' +
+      'Reply with ONLY valid JSON like: {"pose":"wave_hi","emotion":"happy"}. No extra text.';
+
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 6000);
+    const res = await fetch(OLLAMA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        stream: false,
+        format: 'json',
+      }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const raw = (data && data.message && data.message.content) || '';
+    if (!raw) throw new Error('empty');
+    const parsed = JSON.parse(raw);
+    const pose = VALID_POSES.includes(parsed.pose) ? parsed.pose : fallback;
+    const emotion = VALID_EMOTIONS.includes(parsed.emotion) ? parsed.emotion : 'neutral';
+    return { pose, emotion };
+  } catch (e) {
+    // Ollama offline or malformed reply -> offline keyword matcher.
+    return { pose: fallback, emotion: 'neutral' };
+  }
+}

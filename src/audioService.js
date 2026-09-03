@@ -16,12 +16,26 @@ let elevenBlockedReason = '';
 
 const EDGE_TTS_URL = 'http://127.0.0.1:8881/v1/audio/speech';
 const KOKORO_URL = 'http://127.0.0.1:8880/v1/audio/speech';
+// Sarvam AI free Indian girl voices (Bulbul v3). Direct cloud REST API, no
+// local server needed. Sends text, gets back base64-WAV in `audios[]`.
+const SARVAM_URL = 'https://api.sarvam.ai/text-to-speech';
 let currentVoiceProfile = 'eleven-arohi';
 let edgeTTSAvailable = true;
 let kokoroAvailable = true;
+let sarvamAvailable = true;
 
 const ELEVEN_PROFILES = {
     'eleven-arohi': { name: 'Arohi (ElevenLabs, Premium)', voice: CONFIG.ELEVENLABS_VOICE_ID, speed: 1.0, lang: 'hi-IN', engine: 'eleven', desc: 'Arohi\'s own premium voice' },
+};
+
+// Sarvam AI free-tier Indian female voices (Bulbul v3). Kavya/Ishita are the
+// young "teen girl" picks. Marathi uses Kavitha (Marathi female).
+const SARVAM_PROFILES = {
+    'sarvam-kavya':  { name: 'Kavya (Sarvam, Young Hindi)',   speaker: 'kavya',  lang: 'hi-IN', engine: 'sarvam', desc: 'Young natural Hindi girl (Bulbul v3)' },
+    'sarvam-ishita': { name: 'Ishita (Sarvam, Teen Hindi)',   speaker: 'ishita', lang: 'hi-IN', engine: 'sarvam', desc: 'Teen Hindi girl' },
+    'sarvam-shreya': { name: 'Shreya (Sarvam, Soft Hindi)',   speaker: 'shreya', lang: 'hi-IN', engine: 'sarvam', desc: 'Warm soft Hindi girl' },
+    'sarvam-hindi-priya': { name: 'Priya (Sarvam, Hinglish)', speaker: 'priya',  lang: 'hi-IN', engine: 'sarvam', desc: 'Natural Hinglish girl' },
+    'sarvam-marathi-kavitha': { name: 'Kavitha (Sarvam, Marathi)', speaker: 'kavitha', lang: 'mr-IN', engine: 'sarvam', desc: 'Marathi female voice' },
 };
 
 const EDGE_TTS_PROFILES = {
@@ -47,7 +61,7 @@ const BROWSER_VOICES = {
     'browser-jenny':   { name: 'Jenny (US English)',         lang: 'en-US', rate: 1.15, pitch: 1.4, engine: 'browser', desc: 'Browser fallback - US English' },
 };
 
-const ALL_PROFILES = { ...ELEVEN_PROFILES, ...EDGE_TTS_PROFILES, ...KOKORO_PROFILES, ...BROWSER_VOICES };
+const ALL_PROFILES = { ...ELEVEN_PROFILES, ...SARVAM_PROFILES, ...EDGE_TTS_PROFILES, ...KOKORO_PROFILES, ...BROWSER_VOICES };
 const SAMPLE_TEXT = "Hello! Main Arohi hoon, aur aaj bahut mast din hai. Kya kar rahe ho?";
 
 function filterTextForSpeech(text) {
@@ -135,6 +149,7 @@ async function fetchTTS(text, volCallback, profileOverride) {
 
     const profileKey = profileOverride || currentVoiceProfile;
     const isEleven = profileKey.startsWith('eleven-');
+    const isSarvam = profileKey.startsWith('sarvam-');
     const isEdge = profileKey.startsWith('edge-');
     const isKokoro = profileKey.startsWith('kokoro-');
     const emotion = detectEmotion(text);
@@ -194,6 +209,53 @@ async function fetchTTS(text, volCallback, profileOverride) {
         elevenAvailable = false;
     }
 
+    // SARVAM AI free Indian girl voices (Bulbul v3).
+    // Cloud REST API: POST text, get back { audios: [ base64WAV, ... ] }.
+    // Also used as an automatic premium fallback when ElevenLabs is blocked.
+    if (isSarvam && sarvamAvailable && CONFIG.SARVAM_API_KEY && CONFIG.SARVAM_API_KEY.indexOf('YOUR_') !== 0) {
+        const profile = SARVAM_PROFILES[profileKey] || SARVAM_PROFILES['sarvam-kavya'];
+        try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 20000);
+            const res = await fetch(SARVAM_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'api-subscription-key': CONFIG.SARVAM_API_KEY,
+                },
+                body: JSON.stringify({
+                    language_code: profile.lang,
+                    speaker: profile.speaker,
+                    pitch: 0,
+                    pace: 1.0,
+                    loudness: 1.6,
+                    speech_sample_rate: 24000,
+                    enable_preprocessing: true,
+                    model: 'bulbul:v3',
+                    text: clean,
+                }),
+                signal: ctrl.signal,
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+                const j = await res.json();
+                const b64 = Array.isArray(j.audios) ? j.audios.join('') : '';
+                if (b64) {
+                    const bin = atob(b64);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    const blob = new Blob([bytes], { type: 'audio/wav' });
+                    return playBlob(blob, volCallback);
+                }
+                throw new Error('Sarvam returned no audio');
+            }
+            throw new Error('HTTP ' + res.status);
+        } catch (e) {
+            console.warn('[Audio] Sarvam failed:', e.message);
+            sarvamAvailable = false;
+        }
+    }
+
     // Try Edge TTS (natural Indian voices)
     if (isEdge && edgeTTSAvailable) {
         const profile = EDGE_TTS_PROFILES[profileKey] || EDGE_TTS_PROFILES['edge-arohi'];
@@ -239,6 +301,47 @@ async function fetchTTS(text, volCallback, profileOverride) {
         } catch (e) {
             console.warn('[Audio] Kokoro failed:', e.message);
             kokoroAvailable = false;
+        }
+    }
+
+    // Auto Sarvam fallback for the ElevenLabs profile (premium Indian girl
+    // voice) when the ElevenLabs key/plan blocks it.
+    if (isEleven && sarvamAvailable && CONFIG.SARVAM_API_KEY && CONFIG.SARVAM_API_KEY.indexOf('YOUR_') !== 0) {
+        try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 20000);
+            const res = await fetch(SARVAM_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'api-subscription-key': CONFIG.SARVAM_API_KEY,
+                },
+                body: JSON.stringify({
+                    language_code: 'hi-IN',
+                    speaker: 'kavya',
+                    pitch: 0,
+                    pace: 1.0,
+                    loudness: 1.6,
+                    speech_sample_rate: 24000,
+                    enable_preprocessing: true,
+                    model: 'bulbul:v3',
+                    text: clean,
+                }),
+                signal: ctrl.signal,
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+                const j = await res.json();
+                const b64 = Array.isArray(j.audios) ? j.audios.join('') : '';
+                if (b64) {
+                    const bin = atob(b64);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    return playBlob(new Blob([bytes], { type: 'audio/wav' }), volCallback);
+                }
+            }
+        } catch (e) {
+            console.warn('[Audio] Sarvam fallback failed:', e.message);
         }
     }
 
@@ -317,6 +420,7 @@ function getAllVoiceProfiles() {
 async function testVoice(profile, customText) {
     const text = customText || SAMPLE_TEXT;
     if (ELEVEN_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
+    if (SARVAM_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
     if (EDGE_TTS_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
     if (KOKORO_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
     if (BROWSER_VOICES[profile]) return fetchTTS(text, () => {}, profile);

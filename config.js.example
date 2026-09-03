@@ -13,10 +13,15 @@ const CONFIG = {
   GEMINI_GOOGLE_SEARCH: false,
 
   // ElevenLabs API key + voice id (text-to-speech for the heroine).
-  // If empty or the key is exhausted, it falls back to the local Edge-TTS
-  // "Aarohi" (natural Indian girl) voice automatically.
+  // If empty or the key is exhausted, it falls back to the Sarvam AI Indian
+  // girl voice automatically.
   ELEVENLABS_API_KEY: "YOUR_ELEVENLABS_API_KEY",
   ELEVENLABS_VOICE_ID: "YOUR_ELEVENLABS_VOICE_ID",
+
+  // Sarvam AI text-to-speech (free Indian girl voices, Bulbul v3).
+  // Get a free key from sarvam.ai. Used for the premium Indian-girl voice.
+  // If empty, it falls back to the local Edge-TTS "Aarohi" voice.
+  SARVAM_API_KEY: "YOUR_SARVAM_API_KEY",
 };
 
 export default CONFIG;

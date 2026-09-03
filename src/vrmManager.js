@@ -37,6 +37,12 @@ const JOINT_LIMITS = {
     chest:         { x: [-0.1, 0.04], y: [-0.04, 0.04], z: [-0.04, 0.04] },
     upperChest:    { x: [-0.08, 0.04], y: [-0.03, 0.03], z: [-0.03, 0.03] },
     hips:          { x: [-0.15, 0.08], y: [-0.08, 0.08], z: [-0.08, 0.08] },
+    leftUpperLeg:  { x: [-0.9, 1.2], y: [-0.2, 0.2], z: [-0.15, 0.15] },
+    rightUpperLeg: { x: [-0.9, 1.2], y: [-0.2, 0.2], z: [-0.15, 0.15] },
+    leftLowerLeg:  { x: [-0.1, 1.6], y: [-0.15, 0.15], z: [-0.1, 0.1] },
+    rightLowerLeg: { x: [-0.1, 1.6], y: [-0.15, 0.15], z: [-0.1, 0.1] },
+    leftFoot:      { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [-0.2, 0.2] },
+    rightFoot:     { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [-0.2, 0.2] },
 };
 
 const BASE_POSE = {
@@ -56,9 +62,63 @@ const BASE_POSE = {
     chest:         { x: 0, y: 0, z: 0, scale: 1 },
     upperChest:    { x: 0, y: 0, z: 0, scale: 1 },
     hips:          { x: 0, y: 0, z: 0 },
+    leftUpperLeg:  { x: 0, y: 0, z: 0 },
+    rightUpperLeg: { x: 0, y: 0, z: 0 },
+    leftLowerLeg:  { x: 0, y: 0, z: 0 },
+    rightLowerLeg: { x: 0, y: 0, z: 0 },
+    leftFoot:      { x: 0, y: 0, z: 0 },
+    rightFoot:     { x: 0, y: 0, z: 0 },
 };
 
 const IDLE_ACTIONS = ['breathe', 'hairTouch', 'weightShift', 'lookAround', 'fidget'];
+
+// Pose registry: every pose the avatar can strike. Each entry maps to a case in
+// applyGesturePose(). The AI (local model) picks from these keys, and the
+// "Poses" buttons in the three-dot menu trigger them directly.
+const POSES = {
+    'wave_hi':       { label: 'Wave Hi',            emotion: 'happy',    desc: '"Hi!" wave with clean elbow/forearm/hand alignment' },
+    'wave_both':     { label: 'Wave Both Hands',    emotion: 'excited',  desc: 'Friendly double-hand wave' },
+    'spread_arms':   { label: 'Spread Arms',        emotion: 'happy',    desc: 'Open-arms greeting, palms up' },
+    'happy_bounce':  { label: 'Happy Bounce',       emotion: 'excited',  desc: 'Little cheer: arms up + knee bounce' },
+    'hands_hip':     { label: 'Hands on Hips',      emotion: 'happy',    desc: 'Confident boss stance' },
+    'lean_cool':     { label: 'Cool Lean',          emotion: 'neutral',  desc: 'Relaxed weight-on-one-hip lean' },
+    'nod':           { label: 'Nod',                emotion: 'calm',     desc: 'Agreeing nod' },
+    'tilt_head':     { label: 'Tilt Head',          emotion: 'sad',      desc: 'Gentle head tilt' },
+    'think':         { label: 'Think',              emotion: 'neutral',  desc: 'Hand to chin, thinking' },
+    'shrug':         { label: 'Shrug',              emotion: 'neutral',  desc: '\'I don\'t know\' shrug' },
+    'point':         { label: 'Point',              emotion: 'excited',  desc: 'Pointing out' },
+    'cross_arms':    { label: 'Cross Arms',         emotion: 'neutral',  desc: 'Arms crossed' },
+    'blow_kiss':     { label: 'Blow Kiss',          emotion: 'happy',    desc: 'Playful kiss' },
+    'salute':        { label: 'Salute',             emotion: 'excited',  desc: 'Friendly salute' },
+    'bow':           { label: 'Bow',                emotion: 'neutral',  desc: 'Polite bow' },
+    'stretch':       { label: 'Stretch',            emotion: 'relaxed',  desc: 'Arms-up stretch' },
+    'flip_hair':     { label: 'Flip Hair',          emotion: 'excited',  desc: 'Hair flip' },
+    'laugh':         { label: 'Laugh',              emotion: 'happy',    desc: 'Laughing' },
+    'surprise':      { label: 'Surprise',           emotion: 'surprised', desc: 'Hands up, surprised' },
+    'dance':         { label: 'Dance',              emotion: 'excited',  desc: 'Quick dance' },
+};
+
+function getPoseList() { return { ...POSES }; }
+
+// Keyword-based pose selection (offline fallback when the local AI model is
+// not available). Returns a valid pose key from the registry.
+function matchPose(text) {
+    const t = String(text || '').toLowerCase();
+    const has = (ws) => ws.some((w) => t.includes(w));
+    if (has(['dance', 'nach', 'nacho'])) return 'dance';
+    if (has(['wave', 'hii', 'hi ', 'hello', 'namaste', 'swagat', 'hey'])) return 'wave_hi';
+    if (has(['haha', 'lol', 'laugh', 'giggle', 'mazaak', 'joke', 'hasna'])) return 'laugh';
+    if (has(['happy', 'khush', 'mast', 'yay', 'excited', 'awesome', 'celebrate'])) return 'happy_bounce';
+    if (has(['sad', 'udaas', 'dukh', 'dukhi', 'worried', 'sob', 'cry'])) return 'tilt_head';
+    if (has(['angry', 'gussa', 'annoyed', 'frustrated', 'strict', 'nonsense'])) return 'cross_arms';
+    if (has(['wow', 'omg', 'arre', 'sach', 'seriously', 'shocked', 'surprise'])) return 'surprise';
+    if (has(['think', 'soch', 'muse', 'idea', 'hmm', 'kya soch'])) return 'think';
+    if (has(['point', 'dekho', 'look', 'vaha', 'wahan'])) return 'point';
+    if (has(['kiss', 'blush', 'shy'])) return 'blow_kiss';
+    if (has(['thank', 'shukriya', 'dhanyawad'])) return 'bow';
+    if (has(['bye', 'goodbye', 'alvida', 'tata', 'chalta'])) return 'wave_both';
+    return 'nod';
+}
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function easeInOut(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
@@ -334,6 +394,12 @@ function loop() {
             applyBone('chest', pose.chest);
             applyBone('upperChest', pose.upperChest);
             applyBone('hips', pose.hips);
+            applyBone('leftUpperLeg', pose.leftUpperLeg);
+            applyBone('rightUpperLeg', pose.rightUpperLeg);
+            applyBone('leftLowerLeg', pose.leftLowerLeg);
+            applyBone('rightLowerLeg', pose.rightLowerLeg);
+            applyBone('leftFoot', pose.leftFoot);
+            applyBone('rightFoot', pose.rightFoot);
 
             const chestBone = getBone(h, 'chest');
             const upperChestBone = getBone(h, 'upperChest');
@@ -378,26 +444,109 @@ export function startDance() {
 }
 
 // Applies an active gesture to the pose targets (called each frame inside loop).
-// p is the eased progress 0->1. Returns nothing; mutates pose.
+// p is the eased progress 0->1. Returns nothing; mutates pose. Joints are set
+// as a full chain (shoulder -> upperArm -> lowerArm -> hand) so elbows/forearms
+// and hands stay aligned instead of the model collapsing into a T-pose.
 function applyGesturePose(pose, p) {
     if (!gesture) return;
     const ease = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p; // in-out
     const hold = Math.min(p * 3, 1); // quick rise
+    const now = performance.now();
 
     switch (gesture.name) {
+        // "Hi" wave: right arm raised, elbow bent, hand rotating side to side.
+        // Whole chain set together for a clean, anatomically sensible wave.
         case 'wave':
-            pose.leftShoulder.x = 0.25;
-            pose.leftUpperArm.z = 1.65;
-            pose.leftUpperArm.x = -1.6 * ease;
-            pose.leftLowerArm.x = 0.5;
-            pose.leftHand.z = 0.3 + Math.sin(performance.now() / 120) * 0.15 * hold;
+        case 'wave_hi':
+            pose.rightShoulder.x = 0.1;
+            pose.rightShoulder.y = -0.15;
+            pose.rightUpperArm.z = -1.6 + (gesture.name === 'wave_hi' ? 0.1 : 0);
+            pose.rightUpperArm.x = -1.5 * ease;
+            pose.rightLowerArm.z = -1.3 * ease;
+            pose.rightLowerArm.x = 0.25 * ease;
+            pose.rightHand.z = -0.55 + Math.sin(now / 120) * 0.2 * hold;
+            pose.rightHand.y = 0.15 * ease;
+            pose.head.x = 0.08 * ease;
+            pose.head.y = 0.12 * ease;
             break;
+
+        // Both hands wave "hi" with clean elbow + forearm alignment.
+        case 'wave_both':
+            pose.leftShoulder.x = 0.1;
+            pose.rightShoulder.x = 0.1;
+            pose.rightUpperArm.z = -1.6 * ease;
+            pose.leftUpperArm.z = 1.6 * ease;
+            pose.rightLowerArm.z = -1.3 * ease;
+            pose.leftLowerArm.z = 1.3 * ease;
+            pose.leftUpperArm.x = -1.36 * ease;
+            pose.rightUpperArm.x = -1.36 * ease;
+            pose.rightHand.z = -0.5 + Math.sin(now / 130) * 0.18 * hold;
+            pose.leftHand.z = 0.5 + Math.sin(now / 130 + Math.PI) * 0.18 * hold;
+            pose.head.x = 0.08 * ease;
+            break;
+
+        // Arms spread wide (greeting / "aur kya?") with palms up.
+        case 'spread_arms':
+            pose.leftUpperArm.z = 1.55 * ease;
+            pose.rightUpperArm.z = -1.55 * ease;
+            pose.leftUpperArm.x = -1.2 * ease;
+            pose.rightUpperArm.x = -1.2 * ease;
+            pose.leftLowerArm.z = 0.4 * ease;
+            pose.rightLowerArm.z = -0.4 * ease;
+            pose.leftHand.y = 0.2 * ease;
+            pose.rightHand.y = 0.2 * ease;
+            pose.leftHand.z = 0.3;
+            pose.rightHand.z = -0.3;
+            pose.head.y = 0.15 * ease;
+            break;
+
+        // Happy bounce: slight knee-bend + arms up, like a little cheer.
+        case 'happy_bounce':
+            pose.rightUpperArm.z = -1.45 * ease;
+            pose.leftUpperArm.z = 1.45 * ease;
+            pose.rightUpperArm.x = -0.9 * ease;
+            pose.leftUpperArm.x = -0.9 * ease;
+            pose.rightLowerArm.z = -0.9 * ease;
+            pose.leftLowerArm.z = 0.9 * ease;
+            pose.leftUpperLeg.x = -0.1 * ease;
+            pose.rightUpperLeg.x = -0.1 * ease;
+            pose.leftFoot.x = 0.1 * ease;
+            pose.rightFoot.x = -0.1 * ease;
+            pose.head.x = -0.1 * ease;
+            break;
+
+        // Confident hands-on-hips "boss" stance.
+        case 'hands_hip':
+            pose.leftUpperArm.z = 1.55;
+            pose.rightUpperArm.z = -1.55;
+            pose.leftUpperArm.x = -1.3 * ease;
+            pose.rightUpperArm.x = -1.3 * ease;
+            pose.leftLowerArm.x = 0.9 * ease;
+            pose.rightLowerArm.x = 0.9 * ease;
+            pose.leftLowerArm.z = 0.4;
+            pose.rightLowerArm.z = -0.4;
+            pose.leftUpperLeg.x = 0.12 * ease;
+            pose.rightUpperLeg.x = -0.05 * ease;
+            pose.hips.z = 0.12 * ease;
+            break;
+
+        // Relaxed cross-another-leg lean (weight on one hip).
+        case 'lean_cool':
+            pose.hips.z = 0.16 * ease;
+            pose.hips.x = -0.03 * ease;
+            pose.spine.z = 0.1 * ease;
+            pose.leftUpperLeg.x = 0.18 * ease;
+            pose.rightUpperLeg.x = -0.18 * ease;
+            pose.head.z = 0.08 * ease;
+            break;
+
         case 'nod':
             pose.head.x = -0.32 * ease;
             break;
         case 'laugh':
             pose.spine.z = 0.12 * ease;
             pose.head.x = -0.12 * ease;
+            pose.spine.x = 0.06 * ease;
             break;
         case 'think':
             pose.head.y = 0.32 * ease;
@@ -421,7 +570,11 @@ function applyGesturePose(pose, p) {
             pose.head.x = -0.22 * ease;
             pose.head.y = 0.12 * ease;
             pose.leftUpperArm.z = 1.55;
+            pose.rightUpperArm.z = -1.55;
             pose.leftLowerArm.x = 0.3 * ease;
+            pose.rightLowerArm.x = 0.3 * ease;
+            pose.leftHand.y = 0.3 * ease;
+            pose.rightHand.y = 0.3 * ease;
             break;
         case 'blow_kiss':
             pose.leftUpperArm.x = -1.4 * ease;
@@ -429,6 +582,7 @@ function applyGesturePose(pose, p) {
             pose.leftLowerArm.x = 1.0 * ease;
             pose.leftLowerArm.z = -0.6 * ease;
             pose.leftHand.z = 0.5;
+            pose.head.z = 0.15 * ease;
             break;
         case 'bow':
             pose.spine.x = 0.45 * ease;
@@ -436,23 +590,30 @@ function applyGesturePose(pose, p) {
             break;
         case 'stretch':
             pose.leftUpperArm.z = 1.8;
-            pose.leftUpperArm.x = -0.55 * ease;
+            pose.rightUpperArm.z = -1.8;
+            pose.leftUpperArm.x = -0.7 * ease;
+            pose.rightUpperArm.x = -0.7 * ease;
             pose.leftLowerArm.x = -0.4 * ease;
-            pose.head.x = -0.15 * ease;
+            pose.rightLowerArm.x = -0.4 * ease;
+            pose.head.x = -0.25 * ease;
+            pose.head.y = -0.2 * ease;
             break;
         case 'point':
             pose.leftUpperArm.x = -1.4 * ease;
             pose.leftUpperArm.z = 1.5;
             pose.leftLowerArm.x = 0.35 * ease;
             pose.leftLowerArm.z = -0.5 * ease;
+            pose.leftHand.z = -0.5 * ease;
             pose.head.y = 0.3 * ease;
             break;
         case 'cross_arms':
             pose.leftUpperArm.z = 1.7;
             pose.leftUpperArm.x = -1.15 * ease;
             pose.leftLowerArm.x = 0.7 * ease;
+            pose.leftLowerArm.z = 0.25;
             pose.rightUpperArm.z = -1.3;
             pose.rightLowerArm.x = -0.7 * ease;
+            pose.rightLowerArm.z = -0.25;
             break;
         case 'flip_hair':
             pose.head.z = 0.45 * ease;
@@ -461,6 +622,14 @@ function applyGesturePose(pose, p) {
             pose.leftUpperArm.x = -0.6 * ease;
             pose.leftLowerArm.x = 0.9 * ease;
             break;
+        case 'salute':
+            pose.rightUpperArm.z = -1.5;
+            pose.rightUpperArm.x = -1.55 * ease;
+            pose.rightLowerArm.x = 0.4 * ease;
+            pose.rightHand.x = 0.35 * ease;
+            pose.rightHand.y = 0.2 * ease;
+            pose.head.x = 0.05;
+            break;
     }
 }
 
@@ -468,19 +637,21 @@ export function triggerMotion(name) {
     if (!currentVRM || !currentVRM.humanoid) return;
     if (name === 'dance') { startDance(); return; }
     gesture = { name, start: performance.now() };
-    // make sure the gesture is long enough to see
-    const h = currentVRM.humanoid;
-    switch (name) {
-        case 'laugh': case 'surprise': case 'blow_kiss':
-            if (h.expressionManager) {
-                const expr = name === 'laugh' ? 'happy' : name === 'surprise' ? 'surprised' : 'happy';
-                h.expressionManager.setValue(expr, 0.9);
-                setTimeout(() => h.expressionManager.setValue(expr, 0), 800);
-            }
-            break;
-        default: break;
+    // Default emotion for every pose so her face matches the movement.
+    const pose = POSES[name];
+    if (pose && pose.emotion) setEmotionExpression(pose.emotion, 0.8);
+    else {
+        // Legacy: known gesture-expression pairs.
+        const h = currentVRM.humanoid;
+        switch (name) {
+            case 'laugh': case 'blow_kiss': setEmotionExpression('happy', 0.9); break;
+            case 'surprise': setEmotionExpression('surprised', 0.9); break;
+            default: break;
+        }
     }
 }
+
+export function resetPose() { gesture = null; }
 
 export function setMouth(v) {
     if (currentVRM && currentVRM.expressionManager) currentVRM.expressionManager.setValue('aa', v);
@@ -528,3 +699,5 @@ export function setEmotionExpression(emotion, strength = 0.8) {
     else if (emotion === 'surprised') { exp.surprised = Math.min(exp.surprised + strength, 1); }
     else if (emotion === 'calm' || emotion === 'neutral') { exp.relaxed = Math.min(exp.relaxed + strength * 0.5, 1); }
 }
+
+export { getPoseList, matchPose };
