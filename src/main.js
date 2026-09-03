@@ -112,15 +112,15 @@ function applyExpressionAction(text) {
 }
 
 // === AUTONOMOUS / PROACTIVE CHAT ===
-// Talks on her own if you've been quiet for ~1 minute: stories, shayari, quotes.
-// Uses a randomized cooldown so she doesn't talk over and over non-stop.
+// Talks on her own when you've been quiet for ~5 minutes: stories, shayari,
+// quotes. Randomized 5-10 minute gap so she doesn't spam you.
 let lastProactive = 0;
 function scheduleAutoChat() {
     if (autoChatTimer) clearTimeout(autoChatTimer);
     const check = function() {
         const idleMs = Date.now() - lastUserMessage;
         const sinceLast = Date.now() - lastProactive;
-        if (idleMs >= 60000 && sinceLast >= 45000 + Math.random() * 45000) {
+        if (idleMs >= 300000 && sinceLast >= 300000 + Math.random() * 300000) {
             const msg = persona.randomProactiveMessage();
             addMsg('Arohi', msg, 'msg-chloe');
             lastProactive = Date.now();
@@ -157,16 +157,19 @@ async function processText(text) {
         } catch (gemErr) {
             console.warn('[Main] Gemini down, using local model:', gemErr.message);
             model.setModel('local');
+            if (modelSelect) modelSelect.value = 'local';
+            addMsg('System', 'Online AI unavailable, switched to Local model.', 'msg-sys');
             r = await model.chatWithAI(text);
         }
 
         hideThinking();
+        const replyText = r.cleanText || r.expression || '';
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        thinkingMsg = addMsg('Arohi', r.cleanText, 'msg-chloe');
-        thinkingMsg.innerHTML = '<b>Arohi:</b> ' + escapeHtml(r.cleanText) + '<div class="msg-time">' + time + '</div>';
+        thinkingMsg = addMsg('Arohi', replyText, 'msg-chloe');
+        thinkingMsg.innerHTML = '<b>Arohi:</b> ' + escapeHtml(replyText) + '<div class="msg-time">' + time + '</div>';
 
         r.motionTags.forEach(function(t) { vrmManager.triggerMotion(t); });
-        applyExpressionAction(r.cleanText);
+        applyExpressionAction(r.expression || replyText);
         await audio.fetchTTS(r.cleanText, function(vol) {
             vrmManager.setMouth(vol);
             if (vizFill) vizFill.style.width = (vol * 100) + '%';

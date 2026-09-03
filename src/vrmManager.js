@@ -3,10 +3,10 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 let scene, camera, renderer, currentVRM, clock, container;
-let cameraDistance = 2.2;
-let targetDistance = 2.2;
-let cameraY = 1.45;
-let targetCameraY = 1.45;
+let cameraDistance = 1.8;
+let targetDistance = 1.8;
+let cameraY = 1.5;
+let targetCameraY = 1.5;
 const blink = { timer: 0, next: 3, val: 0, phase: 'open' };
 let idleTimer = 0;
 let idleAction = null;
@@ -110,7 +110,6 @@ export function init(el, modelPath) {
     loadModel(modelPath);
 
     window.addEventListener('resize', resize);
-    window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('wheel', onZoom, { passive: false });
     let lastTouch = 0;
     window.addEventListener('touchstart', (e) => {
@@ -119,16 +118,28 @@ export function init(el, modelPath) {
     window.addEventListener('touchmove', (e) => {
         if (e.touches.length === 2) {
             const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-            targetDistance = Math.max(0.8, Math.min(5.0, targetDistance + (lastTouch - d) * 0.005));
+            targetDistance = Math.max(0.7, Math.min(4.0, targetDistance + (lastTouch - d) * 0.005));
             lastTouch = d;
         }
     });
 }
 
+// Elements that should scroll normally instead of zooming the camera when the
+// user wheels over them (chat panel, models/vrms menues, three-dot menu, ...).
+const NON_ZOOM_SELECTOR = '#chat-widget, #chat-window, #chat-header, '
+    + '#menu-dropdown, #menu, .menu-panel, .dropdown-menu, select, '
+    + '[data-scroll], .scroll';
+
 function onZoom(e) {
+    // If the wheel happens over a scrollable or interactive overlay, let the
+    // page/dropdown scroll normally instead of zooming the 3D camera.
+    const t = e.target;
+    if (t && typeof t.closest === 'function' && t.closest(NON_ZOOM_SELECTOR)) {
+        return;
+    }
     e.preventDefault();
-    targetDistance = Math.max(0.8, Math.min(5.0, targetDistance + e.deltaY * 0.002));
-    targetCameraY = 1.45;
+    targetDistance = Math.max(0.7, Math.min(4.0, targetDistance + e.deltaY * 0.002));
+    targetCameraY = 1.5;
     isZooming = true;
     zoomCooldown = 1.0;
 }
@@ -178,7 +189,7 @@ function loop() {
     cameraDistance += (targetDistance - cameraDistance) * 0.08;
     cameraY += (targetCameraY - cameraY) * 0.08;
     camera.position.set(0, cameraY, cameraDistance);
-    camera.lookAt(new THREE.Vector3(0, 1.45, 0));
+    camera.lookAt(new THREE.Vector3(0, 1.5, 0));
 
     if (zoomCooldown > 0) {
         zoomCooldown -= dt;
@@ -206,20 +217,12 @@ function loop() {
         pose.head.y          += Math.sin(t * 0.3) * 0.01;
         pose.head.x          += Math.cos(t * 0.25) * 0.005;
 
-        const cursorDist = Math.sqrt(mouseTarget.x * mouseTarget.x + mouseTarget.y * mouseTarget.y);
-        if (!isZooming && cursorDist < 0.5) {
-            lookAtWeight += (1 - lookAtWeight) * 0.04;
-        } else {
-            lookAtWeight *= 0.85;
-            if (!isZooming) {
-                mouseTarget.x *= 0.93;
-                mouseTarget.y *= 0.93;
-            }
-        }
-        pose.head.y += mouseTarget.x * 0.35 * lookAtWeight;
-        pose.head.x += mouseTarget.y * 0.25 * lookAtWeight;
-        pose.neck.y = pose.head.y * 0.6;
-        pose.neck.x = pose.head.x * 0.5;
+        // Straight-on look: Arohi faces the camera and never follows the mouse,
+        // so she is always making direct eye contact with the user.
+        pose.head.y = 0;
+        pose.head.x = 0;
+        pose.neck.y = 0;
+        pose.neck.x = 0;
 
         if (currentVRM.expressionManager) {
             const exp = expressionState;
@@ -367,19 +370,6 @@ function resize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function onMouseMove(e) {
-    if (!currentVRM || !currentVRM.humanoid || isDancing || isZooming) return;
-    const mx = (e.clientX / window.innerWidth) * 2 - 1;
-    const my = -(e.clientY / window.innerHeight) * 2 + 1;
-    
-    const distFromCenter = Math.sqrt(mx * mx + my * my);
-    if (distFromCenter < 0.5) {
-        mouseTarget.x = mx;
-        mouseTarget.y = my;
-        lookAtWeight = 0;
-    }
-}
-
 export function startDance() {
     isDancing = true;
     danceTimer = 0;
@@ -496,8 +486,8 @@ export function setMouth(v) {
     if (currentVRM && currentVRM.expressionManager) currentVRM.expressionManager.setValue('aa', v);
 }
 export function resetMouth() { setMouth(0); }
-export function zoomIn() { targetDistance = Math.max(0.8, targetDistance - 0.4); targetCameraY = 1.45; isZooming = true; zoomCooldown = 1.0; }
-export function zoomOut() { targetDistance = Math.min(5.0, targetDistance + 0.4); targetCameraY = 1.45; isZooming = true; zoomCooldown = 1.0; }
+export function zoomIn() { targetDistance = Math.max(0.7, targetDistance - 0.4); targetCameraY = 1.5; isZooming = true; zoomCooldown = 1.0; }
+export function zoomOut() { targetDistance = Math.min(4.0, targetDistance + 0.4); targetCameraY = 1.5; isZooming = true; zoomCooldown = 1.0; }
 export function setBackground(hex) { if (scene) scene.background = new THREE.Color(hex); }
 export function setBackgroundImage(url) {
     new THREE.TextureLoader().load(url, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; scene.background = tex; }, undefined, (e) => console.error('[VRM] Bg image fail:', e));

@@ -134,12 +134,13 @@ async function fetchTTS(text, volCallback, profileOverride) {
     const isKokoro = profileKey.startsWith('kokoro-');
     const emotion = detectEmotion(text);
 
-    // PRIMARY: ElevenLabs premium voice (Arohi's own voice).
-    // If the token runs out / quota hits, we fall back to Edge "Aarohi" below.
-    if (elevenAvailable && CONFIG.ELEVENLABS_API_KEY && CONFIG.ELEVENLABS_API_KEY.indexOf('YOUR_') !== 0) {
+    // PRIMARY: ElevenLabs premium voice (Arohi's own voice) — only when the
+    // ElevenLabs profile is the active selection. If the token runs out /
+    // quota hits, we fall back to a natural Edge voice below.
+    if (isEleven && elevenAvailable && CONFIG.ELEVENLABS_API_KEY && CONFIG.ELEVENLABS_API_KEY.indexOf('YOUR_') !== 0) {
         try {
             const ctrl = new AbortController();
-            const tid = setTimeout(() => ctrl.abort(), 20000);
+            const tid = setTimeout(() => ctrl.abort(), 12000);
             const res = await fetch(ELEVEN_URL, {
                 method: 'POST',
                 headers: {

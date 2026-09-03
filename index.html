@@ -144,11 +144,13 @@
         #menu-btn svg { width: 24px; height: 24px; }
         #menu-dropdown {
             position: absolute; top: 56px; left: 0; min-width: 280px; z-index: 200;
+            max-height: calc(100vh - 90px); overflow-y: auto;
             background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(30px);
             border: 1px solid var(--glass-border); border-radius: 16px; padding: 12px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.05);
             opacity: 0; visibility: hidden; transform: translateY(-8px);
             transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.4) transparent;
         }
         #menu-dropdown.open { opacity: 1; visibility: visible; transform: translateY(0); }
         .menu-section { padding: 8px 0; border-bottom: 1px solid var(--glass-border); }
@@ -554,7 +556,7 @@
                 <circle cx="9" cy="7" r="4"/>
             </svg>
         </div>
-        <span class="status-text">Chloe Ready</span>
+        <span class="status-text">Arohi Ready</span>
     </div>
 
     <!-- CHAT WIDGET (Bottom Right) -->

@@ -8,8 +8,8 @@ import CONFIG from './config.js';
 import { SYSTEM_PROMPT } from './persona.js';
 
 const OLLAMA_URL = 'http://127.0.0.1:11434/api/chat';
-const OLLAMA_MODEL = 'gemma-teenager';
-const GEMINI_MODEL = 'gemini-3.6-flash';
+const OLLAMA_MODEL = 'gemma4:latest';
+const GEMINI_MODEL = 'gemini-3.8-flash';
 
 let currentModel = 'gemini';
 
@@ -53,16 +53,18 @@ async function chatWithGemini(userMessage) {
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+    tools: [{ googleSearch: {} }],
     generationConfig: {
       temperature: 0.9,
       topP: 0.95,
-      maxOutputTokens: 256,
+      maxOutputTokens: 320,
+      thinkingConfig: { thinkingLevel: 'low' },
     },
   };
 
-  // Try the latest model first; fall back through older ones if a model is
-  // unavailable for this account.
-  const modelCandidates = ['gemini-3.6-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  // Active Gemini 3-series models as of Sept 2026 (flash = fast, cheap, ideal
+  // for conversational chat). Latest first.
+  const modelCandidates = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'];
 
   let lastError = '';
   for (const modelName of modelCandidates) {
@@ -70,7 +72,7 @@ async function chatWithGemini(userMessage) {
     let res;
     try {
       const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 60000);
+      const tid = setTimeout(() => ctrl.abort(), 25000);
       res = await fetch(url + '?key=' + encodeURIComponent(key), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -79,7 +81,7 @@ async function chatWithGemini(userMessage) {
       });
       clearTimeout(tid);
     } catch (e) {
-      lastError = e.message;
+      lastError = 'timeout/network: ' + e.message;
       continue;
     }
 
@@ -87,7 +89,7 @@ async function chatWithGemini(userMessage) {
       let detail = '';
       try { const j = await res.json(); detail = j.error && j.error.status; } catch (e) {}
       lastError = 'HTTP ' + res.status + (detail ? ' (' + detail + ')' : '');
-      // 404 / NOT_FOUND -> try next model. 401/403/429 -> give up (key problem).
+      // 404 / NOT_FOUND -> try next model. 401/403/429 -> key problem, give up.
       if (res.status !== 404 && res.status !== 400) {
         throw new Error('Gemini HTTP ' + res.status + '. Trying local...');
       }
@@ -152,11 +154,15 @@ async function chatWithOllama(userMessage) {
   return parseReply(fullText);
 }
 
-// Strips motion tags out of the reply but keeps track of them, and preserves
-// the *expression* markers (used by main.js for face + gesture syncing).
+// Strips motion tags out of the reply but keeps track of them, and pulls the
+// leading *expression* marker out so the chat stays clean while main.js can
+// still use it for face + gesture syncing.
 function parseReply(text) {
   const motionRegex = /\[motion:\s*(\w+)\]/gi;
   const motionTags = [...text.matchAll(motionRegex)].map((m) => m[1]);
-  const cleanText = text.replace(motionRegex, '').trim();
-  return { cleanText, motionTags };
+  let cleanText = text.replace(motionRegex, '').trim();
+  const exprMatch = cleanText.match(/^(\s*\*[^*]+\*\s*)/);
+  const expression = exprMatch ? exprMatch[1].trim() : '';
+  if (exprMatch) cleanText = cleanText.replace(/^\s*\*[^*]+\*\s*/, '').trim();
+  return { cleanText, motionTags, expression };
 }

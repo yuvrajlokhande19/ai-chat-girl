@@ -136,14 +136,13 @@ while ($true) {
         "M" {
             Write-Host ""
             Write-Host "  Checking Ollama model..." -ForegroundColor Magenta
-            $modelExists = ollama list 2>$null | Select-String -Pattern "gemma-teenager"
+            $modelExists = ollama list 2>$null | Select-String -Pattern "gemma4"
             if (-not $modelExists) {
-                Write-Host "  Creating model from gemma4:latest..." -ForegroundColor Yellow
+                Write-Host "  Downloading gemma4:latest..." -ForegroundColor Yellow
                 ollama pull gemma4:latest
-                ollama create gemma-teenager -f "$projectDir\config\Modelfile"
-                Write-Host "  Model created!" -ForegroundColor Green
+                Write-Host "  Model ready!" -ForegroundColor Green
             } else {
-                Write-Host "  Model gemma-teenager already exists." -ForegroundColor Green
+                Write-Host "  Model gemma4:latest already present." -ForegroundColor Green
             }
             Write-Host ""
             pause
