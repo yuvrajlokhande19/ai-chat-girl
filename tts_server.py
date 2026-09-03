@@ -1,7 +1,13 @@
 """
 Chloe AI - Edge TTS Server
-Natural Indian girl voices + emotion-based voice modulation.
+Indian teenage girl voices + smooth emotional delivery.
 Port: 8881
+
+Fluency-first design:
+  - Rate is NEVER modified from the neural baseline (rate modulation is what
+    makes neural voices chop / get stuck between words on mixed Hinglish text).
+  - Emotion is conveyed via PITCH only, so she sounds expressive but stays
+    perfectly fluent and natural.
 """
 import asyncio
 import io
@@ -9,87 +15,88 @@ import json
 import edge_tts
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Indian female / teen voices (all free via edge-tts)
+# Indian teen girl voices (all free via edge-tts, verified available)
 VOICES = {
-    "swara": {
-        "id": "hi-IN-SwaraNeural",
-        "name": "Swara (Hindi, Natural Girl)",
-        "lang": "hi-IN",
-        "gender": "Female",
-        "base_pitch": "+0Hz",
-        "base_rate": "+0%",
-    },
     "neerja": {
         "id": "en-IN-NeerjaExpressiveNeural",
         "name": "Neerja (Indian English, Expressive)",
         "lang": "en-IN",
         "gender": "Female",
         "base_pitch": "+0Hz",
-        "base_rate": "+0%",
+        "desc": "Best for Hinglish - natural teen girl",
     },
     "neerja-classic": {
         "id": "en-IN-NeerjaNeural",
-        "name": "Neerja (Indian English, Clear)",
+        "name": "Neerja Clear (Indian English)",
         "lang": "en-IN",
         "gender": "Female",
         "base_pitch": "+0Hz",
-        "base_rate": "+0%",
+        "desc": "Clear, calm Indian girl",
     },
-    "madhur": {
-        "id": "hi-IN-MadhurNeural",
-        "name": "Madhur (Hindi, Male)",
-        "lang": "hi-IN",
-        "gender": "Male",
-        "base_pitch": "+0Hz",
-        "base_rate": "+0%",
+    "neerja-teen": {
+        "id": "en-IN-NeerjaExpressiveNeural",
+        "name": "Neerja Teen (Cute, Delighted)",
+        "lang": "en-IN",
+        "gender": "Female",
+        "base_pitch": "+18Hz",
+        "desc": "Younger, brighter - cute excited girl",
     },
-    "arohi": {
+    "aarohi": {
         "id": "mr-IN-AarohiNeural",
-        "name": "Aarohi (Marathi, Female)",
+        "name": "Aarohi (Marathi, Natural Girl)",
         "lang": "mr-IN",
         "gender": "Female",
         "base_pitch": "+0Hz",
-        "base_rate": "+0%",
+        "desc": "Warm, natural Marathi girl",
     },
-    "dhwani": {
-        "id": "gu-IN-DhwaniNeural",
-        "name": "Dhwani (Gujarati, Female)",
-        "lang": "gu-IN",
+    "aarohi-teen": {
+        "id": "mr-IN-AarohiNeural",
+        "name": "Aarohi Teen (Calm, Sweet)",
+        "lang": "mr-IN",
+        "gender": "Female",
+        "base_pitch": "+14Hz",
+        "desc": "Softer, sweeter teen girl",
+    },
+    "pallavi": {
+        "id": "ta-IN-PallaviNeural",
+        "name": "Pallavi (Tamil, Teen Girl)",
+        "lang": "ta-IN",
         "gender": "Female",
         "base_pitch": "+0Hz",
-        "base_rate": "+0%",
+        "desc": "Tamil teenage girl",
     },
-    "shruti": {
-        "id": "te-IN-ShrutiNeural",
-        "name": "Shruti (Telugu, Female)",
-        "lang": "te-IN",
+    "sapna": {
+        "id": "kn-IN-SapnaNeural",
+        "name": "Sapna (Kannada, Teen Girl)",
+        "lang": "kn-IN",
         "gender": "Female",
         "base_pitch": "+0Hz",
-        "base_rate": "+0%",
+        "desc": "Kannada teenage girl",
     },
-    "tanishaa": {
-        "id": "bn-IN-TanishaaNeural",
-        "name": "Tanishaa (Bengali, Female)",
-        "lang": "bn-IN",
+    "sobhana": {
+        "id": "ml-IN-SobhanaNeural",
+        "name": "Sobhana (Malayalam, Teen Girl)",
+        "lang": "ml-IN",
         "gender": "Female",
         "base_pitch": "+0Hz",
-        "base_rate": "+0%",
+        "desc": "Malayalam teenage girl",
     },
 }
 
-# Emotional modulation presets - change pitch/rate so she SOUNDS emotional
+# Emotional modulation - PITCH ONLY (rate stays neutral to keep her fluent).
+# Pitching up/down gives her feeling without neural-voice choppiness.
 EMOTIONS = {
-    "happy":     {"pitch": "+25Hz", "rate": "+15%"},
-    "excited":   {"pitch": "+40Hz", "rate": "+22%"},
-    "sad":       {"pitch": "-20Hz", "rate": "-10%"},
-    "angry":     {"pitch": "+10Hz", "rate": "+8%"},
-    "surprised": {"pitch": "+35Hz", "rate": "+12%"},
-    "calm":      {"pitch": "+0Hz",  "rate": "-5%"},
-    "funny":     {"pitch": "+20Hz", "rate": "+10%"},
+    "happy":     {"pitch": "+18Hz", "rate": "+0%"},
+    "excited":   {"pitch": "+30Hz", "rate": "+0%"},
+    "sad":       {"pitch": "-22Hz", "rate": "+0%"},
+    "angry":     {"pitch": "+8Hz",  "rate": "+0%"},
+    "surprised": {"pitch": "+28Hz", "rate": "+0%"},
+    "calm":      {"pitch": "+4Hz",  "rate": "+0%"},
+    "funny":     {"pitch": "+16Hz", "rate": "+0%"},
     "neutral":   {"pitch": "+0Hz",  "rate": "+0%"},
 }
 
-DEFAULT_VOICE = "swara"
+DEFAULT_VOICE = "neerja"
 
 
 def clamp(fn):
@@ -135,19 +142,21 @@ class TTSHandler(BaseHTTPRequestHandler):
                 voice_info = VOICES.get(voice_key, VOICES[DEFAULT_VOICE])
                 voice_id = voice_info["id"]
 
-                # Start from the voice's base pitch/rate, then apply emotion
+                # Start from the voice's own base pitch (teen variants are
+                # already pitched up for a cuter sound).
                 pitch = voice_info.get("base_pitch", "+0Hz")
-                rate = voice_info.get("base_rate", "+0%")
+                rate = "+0%"
 
+                # Merge emotion onto it. Rate stays +0% for smooth fluency.
                 emo = EMOTIONS.get(emotion, EMOTIONS["neutral"])
-                pitch = clamp(emo["pitch"])
-                rate = clamp(emo["rate"])
+                emo_pitch = clamp(emo["pitch"])
+                base = int(pitch.replace("Hz", "").replace("+", "")) if "Hz" in pitch else 0
+                bonus = int(emo_pitch.replace("Hz", "").replace("+", "")) if "Hz" in emo_pitch else 0
+                merged = base + bonus
+                pitch = f"{merged:+d}Hz"
 
-                # Apply additional user speed on top of emotion rate
-                if speed > 1:
-                    rate = f"+{int((speed - 1) * 100)}%"
-                elif speed < 1:
-                    rate = f"{int((speed - 1) * 100)}%"
+                # speed is intentionally ignored for fluency - neural voices
+                # chop when forced faster than their natural rate.
 
                 audio_data = asyncio.get_event_loop().run_until_complete(
                     self.generate_speech(text, voice_id, rate, pitch)

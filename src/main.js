@@ -11,6 +11,7 @@ const micBtn = document.getElementById('mic-btn');
 const sendBtn = document.getElementById('send-btn');
 const inputEl = document.getElementById('user-input');
 const chatWindow = document.getElementById('chat-window');
+const chatClearBtn = document.getElementById('chat-clear-btn');
 const vizFill = document.getElementById('viz-fill');
 const zoomInBtn = document.getElementById('zoom-in');
 const zoomOutBtn = document.getElementById('zoom-out');
@@ -228,6 +229,14 @@ function setupEventListeners() {
     inputEl.addEventListener('keypress', function(e) {
         if (e.key === 'Enter') { var t = inputEl.value.trim(); if (t) { inputEl.value = ''; processText(t); } }
     });
+    if (chatClearBtn) {
+        chatClearBtn.addEventListener('click', function() {
+            chatWindow.innerHTML = '';
+            hideThinking();
+            thinkingMsg = null;
+            addMsg('Chloe', 'Baatein saaf kar di! Naya din, nayi shuruaat ✨', 'msg-chloe');
+        });
+    }
     zoomInBtn.addEventListener('click', function() { return vrmManager.zoomIn(); });
     zoomOutBtn.addEventListener('click', function() { return vrmManager.zoomOut(); });
     danceBtn.addEventListener('click', function() {
@@ -288,7 +297,7 @@ function setupEventListeners() {
         voiceEngineSelect.addEventListener('change', function(e) {
             currentVoiceEngine = e.target.value;
             populateVoiceOptions(currentVoiceEngine);
-            var defaultProfile = currentVoiceEngine === 'edge' ? 'edge-swara' : currentVoiceEngine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
+            var defaultProfile = currentVoiceEngine === 'edge' ? 'edge-neerja' : currentVoiceEngine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
             audio.setVoiceProfile(defaultProfile);
         });
     }

@@ -2,19 +2,19 @@
 
 const EDGE_TTS_URL = 'http://127.0.0.1:8881/v1/audio/speech';
 const KOKORO_URL = 'http://127.0.0.1:8880/v1/audio/speech';
-let currentVoiceProfile = 'edge-swara';
+let currentVoiceProfile = 'edge-neerja';
 let edgeTTSAvailable = true;
 let kokoroAvailable = true;
 
 const EDGE_TTS_PROFILES = {
-    'edge-swara':    { name: 'Swara (Hindi, Natural Girl)',  voice: 'swara', speed: 1.1, lang: 'hi-IN', engine: 'edge', desc: 'Pure Hindi girl voice' },
-    'edge-neerja':   { name: 'Neerja (Indian English, Expressive)', voice: 'neerja', speed: 1.05, lang: 'en-IN', engine: 'edge', desc: 'Expressive Indian English - great for Hinglish' },
-    'edge-neerja2':  { name: 'Neerja Clear (Indian English)', voice: 'neerja-classic', speed: 1.0, lang: 'en-IN', engine: 'edge', desc: 'Clear Indian English' },
-    'edge-arohi':    { name: 'Aarohi (Marathi, Female)',     voice: 'arohi', speed: 1.0, lang: 'mr-IN', engine: 'edge', desc: 'Marathi girl voice' },
-    'edge-dhwani':   { name: 'Dhwani (Gujarati, Female)',    voice: 'dhwani', speed: 1.0, lang: 'gu-IN', engine: 'edge', desc: 'Gujarati girl voice' },
-    'edge-shruti':   { name: 'Shruti (Telugu, Female)',      voice: 'shruti', speed: 1.0, lang: 'te-IN', engine: 'edge', desc: 'Telugu girl voice' },
-    'edge-tanishaa': { name: 'Tanishaa (Bengali, Female)',   voice: 'tanishaa', speed: 1.0, lang: 'bn-IN', engine: 'edge', desc: 'Bengali girl voice' },
-    'edge-madhur':   { name: 'Madhur (Hindi, Male)',         voice: 'madhur', speed: 1.0, lang: 'hi-IN', engine: 'edge', desc: 'Hindi male voice' },
+    'edge-neerja':          { name: 'Neerja (Hinglish, Expressive)', voice: 'neerja', speed: 1.0, lang: 'en-IN', engine: 'edge', desc: 'Best for Hinglish teen girl' },
+    'edge-neerja-classic':  { name: 'Neerja Clear (Indian English)', voice: 'neerja-classic', speed: 1.0, lang: 'en-IN', engine: 'edge', desc: 'Clear, calm Indian girl' },
+    'edge-neerja-teen':     { name: 'Neerja Teen (Cute, Delighted)', voice: 'neerja-teen', speed: 1.0, lang: 'en-IN', engine: 'edge', desc: 'Younger cuter excited teen' },
+    'edge-arohi':           { name: 'Aarohi (Marathi, Natural Girl)', voice: 'arohi', speed: 1.0, lang: 'mr-IN', engine: 'edge', desc: 'Warm natural Marathi girl' },
+    'edge-arohi-teen':      { name: 'Aarohi Teen (Calm, Sweet)', voice: 'aarohi-teen', speed: 1.0, lang: 'mr-IN', engine: 'edge', desc: 'Softer sweeter teen girl' },
+    'edge-pallavi':         { name: 'Pallavi (Tamil, Teen Girl)', voice: 'pallavi', speed: 1.0, lang: 'ta-IN', engine: 'edge', desc: 'Tamil teenage girl' },
+    'edge-sapna':           { name: 'Sapna (Kannada, Teen Girl)', voice: 'sapna', speed: 1.0, lang: 'kn-IN', engine: 'edge', desc: 'Kannada teenage girl' },
+    'edge-sobhana':         { name: 'Sobhana (Malayalam, Teen Girl)', voice: 'sobhana', speed: 1.0, lang: 'ml-IN', engine: 'edge', desc: 'Malayalam teenage girl' },
 };
 
 const KOKORO_PROFILES = {
@@ -30,7 +30,7 @@ const BROWSER_VOICES = {
 };
 
 const ALL_PROFILES = { ...EDGE_TTS_PROFILES, ...KOKORO_PROFILES, ...BROWSER_VOICES };
-const SAMPLE_TEXT = "Hello! Main Chloe hoon, kya haal hai? Aaj toh bahut mast lag rahe ho!";
+const SAMPLE_TEXT = "Hello! Main Chloe hoon, aur aaj bahut mast din hai. Kya kar rahe ho?";
 
 function filterTextForSpeech(text) {
     let f = text.replace(/:[a-zA-Z0-9_+-]+:/g, '');
@@ -170,7 +170,7 @@ async function fetchTTS(text, volCallback, profileOverride) {
             const res = await fetch(EDGE_TTS_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: clean, voice: 'swara', speed: 1.1, emotion }),
+                body: JSON.stringify({ text: clean, voice: 'neerja', speed: 1.0, emotion }),
                 signal: ctrl.signal,
             });
             clearTimeout(tid);
