@@ -6,8 +6,13 @@
 import CONFIG from './config.js';
 
 const ELEVEN_URL = 'https://api.elevenlabs.io/v1/text-to-speech/' + CONFIG.ELEVENLABS_VOICE_ID;
-const ELEVEN_MODEL = 'eleven_multilingual_v2';
+// 2026 ElevenLabs models. eleven_multilingual_v2 is the quality "girl" voice;
+// eleven_flash_v2_5 is the low-latency chat option. Both map to
+// TextToSpeech.convert(voiceId, { text, modelId, outputFormat }).
+const ELEVEN_MODELS = ['eleven_multilingual_v2', 'eleven_flash_v2_5'];
+const ELEVEN_OUTPUT_FORMAT = 'mp3_44100_128';
 let elevenAvailable = true;
+let elevenBlockedReason = '';
 
 const EDGE_TTS_URL = 'http://127.0.0.1:8881/v1/audio/speech';
 const KOKORO_URL = 'http://127.0.0.1:8880/v1/audio/speech';
@@ -134,42 +139,59 @@ async function fetchTTS(text, volCallback, profileOverride) {
     const isKokoro = profileKey.startsWith('kokoro-');
     const emotion = detectEmotion(text);
 
-    // PRIMARY: ElevenLabs premium voice (Arohi's own voice) — only when the
-    // ElevenLabs profile is the active selection. If the token runs out /
-    // quota hits, we fall back to a natural Edge voice below.
+    // PRIMARY: ElevenLabs premium voice (Arohi's own girl voice) — only when
+    // the ElevenLabs profile is the active selection. Uses the modern 2026
+    // request shape: POST /v1/text-to-speech/{voice_id} with model_id + output_format
+    // (what TextToSpeech.convert() calls under the hood). If the token is out /
+    // the plan blocks the voice, we fall back to a natural Edge voice.
     if (isEleven && elevenAvailable && CONFIG.ELEVENLABS_API_KEY && CONFIG.ELEVENLABS_API_KEY.indexOf('YOUR_') !== 0) {
-        try {
-            const ctrl = new AbortController();
-            const tid = setTimeout(() => ctrl.abort(), 12000);
-            const res = await fetch(ELEVEN_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'xi-api-key': CONFIG.ELEVENLABS_API_KEY,
-                },
-                body: JSON.stringify({
-                    text: clean,
-                    model_id: ELEVEN_MODEL,
-                    voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.5, use_speaker_boost: true },
-                }),
-                signal: ctrl.signal,
-            });
-            clearTimeout(tid);
-            if (res.ok) {
-                const blob = await res.blob();
-                return playBlob(blob, volCallback);
+        let elevenErr = '';
+        for (const modelId of ELEVEN_MODELS) {
+            try {
+                const ctrl = new AbortController();
+                const tid = setTimeout(() => ctrl.abort(), 12000);
+                const res = await fetch(ELEVEN_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'xi-api-key': CONFIG.ELEVENLABS_API_KEY,
+                    },
+                    body: JSON.stringify({
+                        text: clean,
+                        model_id: modelId,
+                        output_format: ELEVEN_OUTPUT_FORMAT,
+                        voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.5 },
+                    }),
+                    signal: ctrl.signal,
+                });
+                clearTimeout(tid);
+                if (res.ok) {
+                    const blob = await res.blob();
+                    return playBlob(blob, volCallback);
+                }
+                // Try to read the detail so we can tell the user the real reason.
+                let detail = '';
+                try {
+                    const j = await res.json();
+                    detail = (j && j.detail && (j.detail.status || j.detail.message)) || (j && j.error && j.error.status) || '';
+                } catch (e) {}
+                if (res.status === 402 && /paid_plan_required|free users|cannot use library/i.test(detail)) {
+                    elevenBlockedReason = 'ElevenLabs free plan cannot use library voices via API (paid_plan_required). Upgrade to a paid plan to unlock the Arohi ElevenLabs voice.';
+                } else if (res.status === 402 || res.status === 429) {
+                    elevenBlockedReason = 'ElevenLabs quota/credits exhausted (HTTP ' + res.status + '). Recharge credits to use the Arohi ElevenLabs voice.';
+                } else if (res.status === 401) {
+                    elevenBlockedReason = 'ElevenLabs API key invalid (HTTP 401). Check the key in src/config.js.';
+                }
+                elevenErr = 'HTTP ' + res.status + (detail ? ' (' + detail + ')' : '');
+                // 401/402/429 -> no point trying the other model; break out.
+                if (res.status === 401 || res.status === 402 || res.status === 429) break;
+            } catch (e) {
+                elevenErr = e.message;
+                break;
             }
-            // 401 invalid key, 402 quota exceeded, 429 rate limited -> give up on Eleven
-            if (res.status === 401 || res.status === 402 || res.status === 429) {
-                console.warn('[Audio] ElevenLabs token exhausted (' + res.status + '). Falling back to Aarohi.');
-                elevenAvailable = false;
-            } else {
-                throw new Error('HTTP ' + res.status);
-            }
-        } catch (e) {
-            console.warn('[Audio] ElevenLabs failed:', e.message);
-            elevenAvailable = false;
         }
+        console.warn('[Audio] ElevenLabs unavailable:', elevenErr, '-> falling back to natural Indian voice.');
+        elevenAvailable = false;
     }
 
     // Try Edge TTS (natural Indian voices)
@@ -318,6 +340,10 @@ function setupSpeechRecognition(onResult, onStatus) {
     return r;
 }
 
+function getElevenBlockedReason() {
+    return elevenBlockedReason;
+}
+
 export {
     fetchTTS,
     stopSpeaking,
@@ -327,4 +353,5 @@ export {
     testVoice,
     setupSpeechRecognition,
     detectEmotion,
+    getElevenBlockedReason,
 };

@@ -8,6 +8,10 @@ const CONFIG = {
   // Google Gemini API key (AI model). Set to '' to use the local Ollama model.
   GEMINI_API_KEY: "YOUR_GEMINI_API_KEY",
 
+  // Google Search grounding. Leave false unless your account has paid tier:
+  // on free tiers this returns HTTP 429 (quota) and breaks normal chat.
+  GEMINI_GOOGLE_SEARCH: false,
+
   // ElevenLabs API key + voice id (text-to-speech for the heroine).
   // If empty or the key is exhausted, it falls back to the local Edge-TTS
   // "Aarohi" (natural Indian girl) voice automatically.

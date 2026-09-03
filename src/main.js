@@ -132,6 +132,7 @@ function scheduleAutoChat() {
     autoChatTimer = setTimeout(check, 30000);
 }
 
+let elevenNoticeShown = false;
 function speakWithExpression(text, isReply) {
     const vrm = vrmManager.getVRM();
     if (!vrm) return;
@@ -139,6 +140,14 @@ function speakWithExpression(text, isReply) {
     audio.fetchTTS(text, function(vol) {
         vrmManager.setMouth(vol);
         if (vizFill) vizFill.style.width = (vol * 100) + '%';
+    }).then(function() {
+        if (!elevenNoticeShown) {
+            const reason = audio.getElevenBlockedReason && audio.getElevenBlockedReason();
+            if (reason) {
+                elevenNoticeShown = true;
+                addMsg('Voice', reason, 'msg-sys');
+            }
+        }
     });
 }
 
