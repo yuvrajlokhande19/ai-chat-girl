@@ -469,6 +469,26 @@
             </div>
             <div class="menu-divider"></div>
             <div class="menu-section">
+                <div class="menu-label">AI Model</div>
+                <div class="menu-item">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor"/>
+                        <path d="M9 9h6v6H9z" fill="currentColor"/>
+                        <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                        <path d="M12 2v2M12 20v2M2 12h2M20 12h2" stroke="currentColor"/>
+                    </svg>
+                    <span style="flex:1;text-align:left;font-size:13px;">Engine</span>
+                    <select id="model-select" style="padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;">
+                        <option value="gemini">Gemini (Online, Default)</option>
+                        <option value="local">Local (Ollama)</option>
+                    </select>
+                </div>
+                <div style="padding:0 12px;font-size:11px;color:var(--text-muted);margin-top:4px;">
+                    Gemini is used by default. If it stops working, it auto-switches to the local model.
+                </div>
+            </div>
+            <div class="menu-divider"></div>
+            <div class="menu-section">
                 <div class="menu-label">Voice</div>
                 <div class="menu-item" style="flex-direction:column;gap:8px;align-items:stretch;">
                     <div style="display:flex;align-items:center;gap:12px;">
@@ -480,7 +500,8 @@
                         </svg>
                         <span style="flex:1;text-align:left;font-size:13px;">Voice Engine</span>
                         <select id="voice-engine" style="padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;">
-                            <option value="edge">Edge TTS (Natural Hindi, Best Quality)</option>
+                            <option value="elevenlabs">ElevenLabs (Premium, Arohi's Voice)</option>
+                            <option value="edge">Edge TTS (Natural Indian Voices)</option>
                             <option value="kokoro">Kokoro (Local, Fast)</option>
                             <option value="browser">Browser SpeechSynthesis (Fallback)</option>
                         </select>

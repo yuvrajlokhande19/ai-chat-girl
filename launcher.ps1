@@ -6,6 +6,18 @@ $vitePort = 3000
 $viteUrl = "http://localhost:$vitePort"
 $ollamaApi = "http://127.0.0.1:11434"
 
+function Ensure-Config {
+    $configFile = "$projectDir\src\config.js"
+    if (Test-Path $configFile) { return }
+    $example = "$projectDir\config.js.example"
+    if (Test-Path $example) {
+        Copy-Item $example $configFile
+        Write-Host "  Created src\config.js from example. Fill in your Gemini + ElevenLabs keys there." -ForegroundColor Yellow
+    } else {
+        Write-Host "  WARNING: src\config.js missing and no config.js.example found." -ForegroundColor Red
+    }
+}
+
 function Show-Menu {
     Clear-Host
     Write-Host ""
@@ -85,6 +97,7 @@ function Open-Browser {
 }
 
 # === MAIN LOOP ===
+Ensure-Config
 while ($true) {
     Show-Menu
     $choice = Read-Host "  Select option"

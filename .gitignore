@@ -7,3 +7,4 @@ client-finder-backup/
 package-lock.json
 *.log
 .DS_Store
+src/config.js

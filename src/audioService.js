@@ -1,10 +1,23 @@
-// audioService.js — Edge TTS (Natural Indian voices + emotions) + Kokoro + Browser fallback
+// audioService.js — Voice for Arohi.
+// Primary: ElevenLabs (natural, expressive). Fallback: Edge TTS (Aarohi) ->
+// Kokoro -> browser speechSynthesis. Auto-falls back when the ElevenLabs
+// token runs out.
+
+import CONFIG from './config.js';
+
+const ELEVEN_URL = 'https://api.elevenlabs.io/v1/text-to-speech/' + CONFIG.ELEVENLABS_VOICE_ID;
+const ELEVEN_MODEL = 'eleven_multilingual_v2';
+let elevenAvailable = true;
 
 const EDGE_TTS_URL = 'http://127.0.0.1:8881/v1/audio/speech';
 const KOKORO_URL = 'http://127.0.0.1:8880/v1/audio/speech';
-let currentVoiceProfile = 'edge-neerja';
+let currentVoiceProfile = 'eleven-arohi';
 let edgeTTSAvailable = true;
 let kokoroAvailable = true;
+
+const ELEVEN_PROFILES = {
+    'eleven-arohi': { name: 'Arohi (ElevenLabs, Premium)', voice: CONFIG.ELEVENLABS_VOICE_ID, speed: 1.0, lang: 'hi-IN', engine: 'eleven', desc: 'Arohi\'s own premium voice' },
+};
 
 const EDGE_TTS_PROFILES = {
     'edge-neerja':          { name: 'Neerja (Hinglish, Expressive)', voice: 'neerja', speed: 1.0, lang: 'en-IN', engine: 'edge', desc: 'Best for Hinglish teen girl' },
@@ -29,11 +42,17 @@ const BROWSER_VOICES = {
     'browser-jenny':   { name: 'Jenny (US English)',         lang: 'en-US', rate: 1.15, pitch: 1.4, engine: 'browser', desc: 'Browser fallback - US English' },
 };
 
-const ALL_PROFILES = { ...EDGE_TTS_PROFILES, ...KOKORO_PROFILES, ...BROWSER_VOICES };
-const SAMPLE_TEXT = "Hello! Main Chloe hoon, aur aaj bahut mast din hai. Kya kar rahe ho?";
+const ALL_PROFILES = { ...ELEVEN_PROFILES, ...EDGE_TTS_PROFILES, ...KOKORO_PROFILES, ...BROWSER_VOICES };
+const SAMPLE_TEXT = "Hello! Main Arohi hoon, aur aaj bahut mast din hai. Kya kar rahe ho?";
 
 function filterTextForSpeech(text) {
-    let f = text.replace(/:[a-zA-Z0-9_+-]+:/g, '');
+    let f = String(text || '');
+    // strip *expression* markers the persona writes (not meant for speech)
+    f = f.replace(/\*[^*]*\*/g, '');
+    // strip [motion: ...] tags
+    f = f.replace(/\[motion:\s*\w+\]/gi, '');
+    // strip shortcodes and emojis
+    f = f.replace(/:[a-zA-Z0-9_+-]+:/g, '');
     f = f.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}]/gu, '');
     return f.replace(/\s+/g, ' ').trim();
 }
@@ -110,13 +129,51 @@ async function fetchTTS(text, volCallback, profileOverride) {
     if (!clean) { if (volCallback) volCallback(0); return; }
 
     const profileKey = profileOverride || currentVoiceProfile;
+    const isEleven = profileKey.startsWith('eleven-');
     const isEdge = profileKey.startsWith('edge-');
     const isKokoro = profileKey.startsWith('kokoro-');
     const emotion = detectEmotion(text);
 
-    // Try Edge TTS first (best Indian voice)
+    // PRIMARY: ElevenLabs premium voice (Arohi's own voice).
+    // If the token runs out / quota hits, we fall back to Edge "Aarohi" below.
+    if (elevenAvailable && CONFIG.ELEVENLABS_API_KEY && CONFIG.ELEVENLABS_API_KEY.indexOf('YOUR_') !== 0) {
+        try {
+            const ctrl = new AbortController();
+            const tid = setTimeout(() => ctrl.abort(), 20000);
+            const res = await fetch(ELEVEN_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'xi-api-key': CONFIG.ELEVENLABS_API_KEY,
+                },
+                body: JSON.stringify({
+                    text: clean,
+                    model_id: ELEVEN_MODEL,
+                    voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0.5, use_speaker_boost: true },
+                }),
+                signal: ctrl.signal,
+            });
+            clearTimeout(tid);
+            if (res.ok) {
+                const blob = await res.blob();
+                return playBlob(blob, volCallback);
+            }
+            // 401 invalid key, 402 quota exceeded, 429 rate limited -> give up on Eleven
+            if (res.status === 401 || res.status === 402 || res.status === 429) {
+                console.warn('[Audio] ElevenLabs token exhausted (' + res.status + '). Falling back to Aarohi.');
+                elevenAvailable = false;
+            } else {
+                throw new Error('HTTP ' + res.status);
+            }
+        } catch (e) {
+            console.warn('[Audio] ElevenLabs failed:', e.message);
+            elevenAvailable = false;
+        }
+    }
+
+    // Try Edge TTS (natural Indian voices)
     if (isEdge && edgeTTSAvailable) {
-        const profile = EDGE_TTS_PROFILES[profileKey] || EDGE_TTS_PROFILES['edge-swara'];
+        const profile = EDGE_TTS_PROFILES[profileKey] || EDGE_TTS_PROFILES['edge-arohi'];
         try {
             const ctrl = new AbortController();
             const tid = setTimeout(() => ctrl.abort(), 15000);
@@ -162,7 +219,7 @@ async function fetchTTS(text, volCallback, profileOverride) {
         }
     }
 
-    // Auto Edge fallback for non-edge profiles
+    // Auto Edge fallback for non-edge profiles -> uses Aarohi (natural girl)
     if (edgeTTSAvailable && !isEdge) {
         try {
             const ctrl = new AbortController();
@@ -189,10 +246,10 @@ async function fetchTTS(text, volCallback, profileOverride) {
 function browserTTS(text, volCallback, emotion) {
     return new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance(text);
-        const prof = BROWSER_VOICES[currentVoiceProfile];
-        const lang = prof ? prof.lang : 'hi-IN';
-        let rate = prof ? prof.rate : 1.15;
-        let pitch = prof ? prof.pitch : 1.4;
+        const prof = BROWSER_VOICES[currentVoiceProfile] || BROWSER_VOICES['browser-neerja'];
+        const lang = prof.lang;
+        let rate = prof.rate;
+        let pitch = prof.pitch;
 
         // Apply emotion via pitch/rate for browser voices too
         if (emotion === 'excited' || emotion === 'surprised') { pitch += 0.3; rate += 0.1; }
@@ -236,6 +293,7 @@ function getAllVoiceProfiles() {
 
 async function testVoice(profile, customText) {
     const text = customText || SAMPLE_TEXT;
+    if (ELEVEN_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
     if (EDGE_TTS_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
     if (KOKORO_PROFILES[profile]) return fetchTTS(text, () => {}, profile);
     if (BROWSER_VOICES[profile]) return fetchTTS(text, () => {}, profile);

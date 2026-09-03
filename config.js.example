@@ -1,0 +1,18 @@
+// config.js.example — copy this to src/config.js and fill in your real keys.
+// src/config.js is gitignored so your API keys stay safe.
+//
+// To auto-generate src/config.js from this file, just run the Chloe launcher
+// (it creates it automatically if missing), or manually copy & edit.
+
+const CONFIG = {
+  // Google Gemini API key (AI model). Set to '' to use the local Ollama model.
+  GEMINI_API_KEY: "YOUR_GEMINI_API_KEY",
+
+  // ElevenLabs API key + voice id (text-to-speech for the heroine).
+  // If empty or the key is exhausted, it falls back to the local Edge-TTS
+  // "Aarohi" (natural Indian girl) voice automatically.
+  ELEVENLABS_API_KEY: "YOUR_ELEVENLABS_API_KEY",
+  ELEVENLABS_VOICE_ID: "YOUR_ELEVENLABS_VOICE_ID",
+};
+
+export default CONFIG;

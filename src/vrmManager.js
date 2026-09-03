@@ -19,15 +19,17 @@ let lookAtWeight = 0;
 let isZooming = false;
 let zoomCooldown = 0;
 let expressionState = { happy: 0, sad: 0, angry: 0, surprised: 0, relaxed: 0 };
+let gesture = null; // active gesture: { name, start }
+const GESTURE_DUR = 900;
 
 const JOINT_LIMITS = {
-    leftShoulder:  { x: [-0.3, 0.3], y: [-0.2, 0.2], z: [-0.2, 0.2] },
+    leftShoulder:  { x: [-0.4, 0.4], y: [-0.25, 0.25], z: [-0.25, 0.25] },
     rightShoulder: { x: [-0.3, 0.3], y: [-0.2, 0.2], z: [-0.2, 0.2] },
-    leftUpperArm:  { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [0.5, 1.8] },
+    leftUpperArm:  { x: [-1.9, 0.9], y: [-0.4, 0.4], z: [0.5, 1.9] },
     rightUpperArm: { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [-1.8, -0.5] },
-    leftLowerArm:  { x: [-0.3, 1.5], y: [-0.3, 0.3], z: [-0.5, 0.3] },
+    leftLowerArm:  { x: [-0.5, 1.8], y: [-0.4, 0.4], z: [-0.9, 0.9] },
     rightLowerArm: { x: [-0.3, 1.5], y: [-0.3, 0.3], z: [-0.3, 0.5] },
-    leftHand:      { x: [-0.4, 0.4], y: [-0.3, 0.3], z: [-0.3, 0.3] },
+    leftHand:      { x: [-0.5, 0.5], y: [-0.4, 0.4], z: [-0.4, 0.4] },
     rightHand:     { x: [-0.4, 0.4], y: [-0.3, 0.3], z: [-0.3, 0.3] },
     head:          { x: [-0.4, 0.3], y: [-0.6, 0.6], z: [-0.25, 0.25] },
     neck:          { x: [-0.3, 0.2], y: [-0.4, 0.4], z: [-0.15, 0.15] },
@@ -295,6 +297,16 @@ function loop() {
         }
 
         const speed = 0.08;
+
+        // Apply active gesture (overrides pose targets so hand gestures are
+        // accurate, visible and smoothly animated instead of being cancelled
+        // by the base-pose lerp).
+        if (gesture) {
+            const elapsed = performance.now() - gesture.start;
+            const p = Math.min(elapsed / GESTURE_DUR, 1);
+            applyGesturePose(pose, p);
+            if (p >= 1) gesture = null;
+        }
         if (currentVRM && currentVRM.humanoid) {
             const applyBone = (name, target) => {
                 const bone = getBone(h, name);
@@ -375,42 +387,108 @@ export function startDance() {
     danceTimeout = setTimeout(() => { isDancing = false; }, 6000);
 }
 
+// Applies an active gesture to the pose targets (called each frame inside loop).
+// p is the eased progress 0->1. Returns nothing; mutates pose.
+function applyGesturePose(pose, p) {
+    if (!gesture) return;
+    const ease = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p; // in-out
+    const hold = Math.min(p * 3, 1); // quick rise
+
+    switch (gesture.name) {
+        case 'wave':
+            pose.leftShoulder.x = 0.25;
+            pose.leftUpperArm.z = 1.65;
+            pose.leftUpperArm.x = -1.6 * ease;
+            pose.leftLowerArm.x = 0.5;
+            pose.leftHand.z = 0.3 + Math.sin(performance.now() / 120) * 0.15 * hold;
+            break;
+        case 'nod':
+            pose.head.x = -0.32 * ease;
+            break;
+        case 'laugh':
+            pose.spine.z = 0.12 * ease;
+            pose.head.x = -0.12 * ease;
+            break;
+        case 'think':
+            pose.head.y = 0.32 * ease;
+            pose.leftUpperArm.x = -0.5 * ease;
+            pose.leftUpperArm.z = 1.6;
+            pose.leftLowerArm.x = 0.8 * ease;
+            pose.leftLowerArm.z = 0.3 * ease;
+            pose.leftHand.z = 0.45;
+            break;
+        case 'shrug':
+            pose.leftShoulder.x = 0.25 * ease;
+            pose.rightShoulder.x = 0.25 * ease;
+            pose.leftUpperArm.y = 0.35 * ease;
+            pose.rightUpperArm.y = -0.35 * ease;
+            break;
+        case 'tilt_head':
+            pose.head.z = 0.3 * ease;
+            pose.neck.z = 0.15 * ease;
+            break;
+        case 'surprise':
+            pose.head.x = -0.22 * ease;
+            pose.head.y = 0.12 * ease;
+            pose.leftUpperArm.z = 1.55;
+            pose.leftLowerArm.x = 0.3 * ease;
+            break;
+        case 'blow_kiss':
+            pose.leftUpperArm.x = -1.4 * ease;
+            pose.leftUpperArm.z = 1.7;
+            pose.leftLowerArm.x = 1.0 * ease;
+            pose.leftLowerArm.z = -0.6 * ease;
+            pose.leftHand.z = 0.5;
+            break;
+        case 'bow':
+            pose.spine.x = 0.45 * ease;
+            pose.head.x = 0.3 * ease;
+            break;
+        case 'stretch':
+            pose.leftUpperArm.z = 1.8;
+            pose.leftUpperArm.x = -0.55 * ease;
+            pose.leftLowerArm.x = -0.4 * ease;
+            pose.head.x = -0.15 * ease;
+            break;
+        case 'point':
+            pose.leftUpperArm.x = -1.4 * ease;
+            pose.leftUpperArm.z = 1.5;
+            pose.leftLowerArm.x = 0.35 * ease;
+            pose.leftLowerArm.z = -0.5 * ease;
+            pose.head.y = 0.3 * ease;
+            break;
+        case 'cross_arms':
+            pose.leftUpperArm.z = 1.7;
+            pose.leftUpperArm.x = -1.15 * ease;
+            pose.leftLowerArm.x = 0.7 * ease;
+            pose.rightUpperArm.z = -1.3;
+            pose.rightLowerArm.x = -0.7 * ease;
+            break;
+        case 'flip_hair':
+            pose.head.z = 0.45 * ease;
+            pose.head.y = -0.35 * ease;
+            pose.leftUpperArm.z = 1.75;
+            pose.leftUpperArm.x = -0.6 * ease;
+            pose.leftLowerArm.x = 0.9 * ease;
+            break;
+    }
+}
+
 export function triggerMotion(name) {
     if (!currentVRM || !currentVRM.humanoid) return;
-    const h = currentVRM.humanoid;
-
-    const anim = (bone, axis, target, dur) => {
-        const node = h.getNormalizedBoneNode(bone);
-        if (!node) return;
-        const start = performance.now();
-        const from = node.rotation[axis];
-        (function step(now) {
-            const p = Math.min((now - start) / dur, 1);
-            node.rotation[axis] = from + (target - from) * p;
-            if (p < 1) requestAnimationFrame(step);
-        })(start);
-    };
-
-    const face = (expr, val, dur) => {
-        if (!currentVRM.expressionManager) return;
-        currentVRM.expressionManager.setValue(expr, val);
-        setTimeout(() => currentVRM.expressionManager.setValue(expr, 0), dur);
-    };
-
     if (name === 'dance') { startDance(); return; }
-
+    gesture = { name, start: performance.now() };
+    // make sure the gesture is long enough to see
+    const h = currentVRM.humanoid;
     switch (name) {
-        case 'wave': anim('leftUpperArm', 'x', -2.0, 400); anim('leftLowerArm', 'z', 0.8, 400); break;
-        case 'nod': anim('head', 'x', -0.3, 250); break;
-        case 'laugh': face('happy', 1, 600); anim('spine', 'z', 0.1, 150); break;
-        case 'think': anim('head', 'y', 0.3, 500); anim('leftUpperArm', 'x', -0.5, 300); anim('leftLowerArm', 'z', 0.8, 300); break;
-        case 'shrug': anim('leftUpperArm', 'y', 0.4, 300); anim('rightUpperArm', 'y', -0.4, 300); break;
-        case 'tilt_head': anim('head', 'z', 0.3, 350); break;
-        case 'surprise': face('surprised', 1, 500); anim('head', 'x', -0.25, 200); break;
-        case 'blow_kiss': anim('leftUpperArm', 'x', -1.5, 300); anim('leftLowerArm', 'z', 1.0, 300); face('happy', 0.8, 800); break;
-        case 'bow': anim('spine', 'x', 0.4, 500); anim('head', 'x', 0.3, 500); break;
-        case 'stretch': anim('leftUpperArm', 'z', 1.8, 500); anim('leftUpperArm', 'x', -0.5, 500); break;
-        case 'point': anim('leftUpperArm', 'x', -1.5, 300); anim('leftLowerArm', 'z', 0.3, 300); break;
+        case 'laugh': case 'surprise': case 'blow_kiss':
+            if (h.expressionManager) {
+                const expr = name === 'laugh' ? 'happy' : name === 'surprise' ? 'surprised' : 'happy';
+                h.expressionManager.setValue(expr, 0.9);
+                setTimeout(() => h.expressionManager.setValue(expr, 0), 800);
+            }
+            break;
+        default: break;
     }
 }
 
