@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
-    open: false,
+    open: true,
   },
   optimizeDeps: {
     include: ['three', '@pixiv/three-vrm'],
