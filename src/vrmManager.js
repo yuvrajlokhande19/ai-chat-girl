@@ -25,6 +25,9 @@ let gestureAction = null; // current one-shot gesture
 let isTalking = false;
 let gestureTimeout = null; // timeout for mocap gesture playback
 
+// Slow-drifting fog/cloud layer (decorative, behind the avatar).
+let cloudSprites = [];
+
 // ────────────────────────────────────────────────────────────
 //  QUATERNION CLIP HELPERS
 //  All bone rotations are stored as quaternions and interpolated
@@ -396,6 +399,8 @@ export function init(el, modelPath) {
     scene.background = new THREE.Color(0x080810);
     scene.fog = new THREE.FogExp2(0x080810, 0.12);
 
+    buildCloudLayer();
+
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position.set(0, cameraY, cameraDistance);
 
@@ -442,6 +447,71 @@ export function init(el, modelPath) {
             zoomCooldown = 1.0;
         }
     });
+}
+
+// ────────────────────────────────────────────────────────────
+//  SLOW-DRIFTING CLOUD LAYER (background atmosphere)
+//  Big, soft, very transparent sprites drifting behind the girl —
+//  reads as moving black-fog/cloud, slow and dreamlike.
+// ────────────────────────────────────────────────────────────
+function cloudTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(128, 128, 8, 128, 128, 122);
+    grd.addColorStop(0, 'rgba(140,160,190,0.55)');
+    grd.addColorStop(0.45, 'rgba(140,160,190,0.28)');
+    grd.addColorStop(1, 'rgba(140,160,190,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 256, 256);
+    const tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    return tex;
+}
+
+function buildCloudLayer() {
+    for (const s of cloudSprites) scene.remove(s);
+    cloudSprites = [];
+    const count = 7;
+    for (let i = 0; i < count; i++) {
+        const tex = cloudTexture();
+        const mat = new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            opacity: 0.06 + Math.random() * 0.06,
+            depthWrite: false,
+            fog: true,
+            color: 0xc0cede,
+        });
+        const sp = new THREE.Sprite(mat);
+        const w = 13 + Math.random() * 11;
+        const h = 4.5 + Math.random() * 4;
+        sp.scale.set(w, h, 1);
+        sp.position.set(
+            (Math.random() - 0.5) * 26,
+            2.2 + Math.random() * 4.5,
+            -6.5 - Math.random() * 4
+        );
+        // Slow horizontal drift, slow vertical bob, gentle spin.
+        sp.userData = {
+            speed: 0.12 + Math.random() * 0.22,
+            range: 16 + w,
+            bob: 0.12 + Math.random() * 0.15,
+            bobPhase: Math.random() * Math.PI * 2,
+            spin: (Math.random() - 0.5) * 0.05,
+        };
+        cloudSprites.push(sp);
+        scene.add(sp);
+    }
+}
+
+function updateClouds(dt, t) {
+    for (const s of cloudSprites) {
+        s.position.x += s.userData.speed * dt;
+        if (s.position.x > s.userData.range) s.position.x = -s.userData.range;
+        s.position.y += Math.sin(t * 0.2 + s.userData.bobPhase) * s.userData.bob * dt * 0.5;
+        s.material.rotation += s.userData.spin * dt;
+    }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -617,6 +687,8 @@ function loop() {
     const dt = clock.getDelta();
     const t = clock.getElapsedTime();
 
+    updateClouds(dt, t);
+
     // Camera smooth follow
     cameraDistance += (targetDistance - cameraDistance) * 0.08;
     cameraY += (targetCameraY - cameraY) * 0.08;
@@ -728,6 +800,10 @@ window.__loadedMocap = () => Object.keys(mocapClips);
 window.__resetGesture = () => { resetPose(); };
 window.__holdPose = (name) => { holdPose(name); };
 window.__clearHold = () => { clearHeldPose(); };
+window.__cloudInfo = () => {
+    const s = cloudSprites[0];
+    return { count: cloudSprites.length, sample: s ? { x: +s.position.x.toFixed(2), y: +s.position.y.toFixed(2), z: +s.position.z.toFixed(2), speed: s.userData.speed } : null };
+};
 
 export function resetPose() {
     restoreIdle();

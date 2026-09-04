@@ -4,9 +4,10 @@
   "description": "",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "vite",
+    "dev": "node scripts/start-dev.cjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "bridge": "node bridge/hermes-bridge.cjs"
   },
   "keywords": [],
   "type": "module",

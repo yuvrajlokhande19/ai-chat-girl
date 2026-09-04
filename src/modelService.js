@@ -1,17 +1,33 @@
 // modelService.js — AI brain that powers Arohi.
 // Supports two engines:
-//   'gemini'  -> Google Gemini Interactions API (default, 2026)
-//   'local'   -> Ollama (gemma4:latest / local model)
+//   'local'   -> Ollama gemma4:latest (default, fast, no quota, runs on this laptop)
+//   'gemini'  -> Google Gemini Interactions API (online fallback/option)
 // You can switch at runtime via setModel(). main.js exposes this in the UI.
 
 import CONFIG from './config.js';
 import { SYSTEM_PROMPT } from './persona.js';
 
 const OLLAMA_URL = 'http://127.0.0.1:11434/api/chat';
+const OLLAMA_GENERATE_URL = 'http://127.0.0.1:11434/api/generate';
 const OLLAMA_MODEL = 'gemma4:latest';
 const GEMINI_MODEL = 'gemini-3.6-flash';
 
-let currentModel = 'gemini';
+let currentModel = 'local';
+
+// Warm the local gemma4 model so the first reply is fast instead of paying a
+// cold model-load. Fire-and-forget after app start; never blocks or throws.
+export function warmLocalModel() {
+    try {
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 8000);
+        fetch(OLLAMA_GENERATE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: OLLAMA_MODEL, prompt: 'hi', stream: false, keep_alive: '25m' }),
+            signal: ctrl.signal,
+        }).catch(() => {}).finally(() => clearTimeout(tid));
+    } catch (e) { /* ignore */ }
+}
 
 export function setModel(m) {
   const next = (m === 'local' || m === 'gemini') ? m : 'gemini';
@@ -179,6 +195,7 @@ async function chatWithOllama(userMessage) {
       { role: 'user', content: userMessage },
     ],
     stream: true,
+    keep_alive: '25m', // keep gemma4 loaded between turns -> much faster replies
   };
 
   let response;
@@ -269,6 +286,7 @@ export async function chooseAIPose(replyText, fallbackPose) {
         messages: [{ role: 'user', content: prompt }],
         stream: false,
         format: 'json',
+        keep_alive: '25m',
       }),
       signal: ctrl.signal,
     });

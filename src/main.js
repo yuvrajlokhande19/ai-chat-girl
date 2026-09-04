@@ -2,6 +2,7 @@ import * as vrmManager from './vrmManager.js';
 import * as model from './modelService.js';
 import * as audio from './audioService.js';
 import * as persona from './persona.js';
+import * as hermes from './hermesService.js';
 
 // === DOM ELEMENTS ===
 const canvasEl = document.getElementById('canvas-container');
@@ -206,8 +207,83 @@ function speakWithExpression(text, isReply) {
     });
 }
 
+// Speaks a plain line (no AI motion tags) with the matching pose held for the
+// whole sentence — used for Hermes progress narration + task summaries.
+function speakReplyLine(text) {
+    return new Promise(function(resolve) {
+        const exRes = applyExpressionAction(text);
+        const emotion = exRes.emotion;
+        vrmManager.setEmotionExpression(emotion, 0.8);
+        const pose = exRes.pose || vrmManager.poseForEmotion(emotion);
+        let started = false;
+        speechBusy = true;
+        audio.fetchTTS(text, function(vol) {
+            vrmManager.setMouth(vol);
+            if (vizFill) vizFill.style.width = (vol * 100) + '%';
+            if (!started) {
+                started = true;
+                vrmManager.setTalking(true);
+                vrmManager.holdPose(pose);
+            }
+        }).then(function() {
+            if (started) vrmManager.clearHeldPose();
+            vrmManager.setTalking(false);
+            speechBusy = false;
+            resolve();
+        }).catch(function() {
+            if (started) vrmManager.clearHeldPose();
+            vrmManager.setTalking(false);
+            speechBusy = false;
+            resolve();
+        });
+    });
+}
+
 async function processText(text) {
     if (!text.trim() || !appStarted) return;
+
+    // ---- Hermes task routing -------------------------------------------------
+    const taskText = hermes.isTask(text);
+    if (taskText) {
+        addMsg('You', text, 'msg-you');
+        lastUserMessage = Date.now();
+        if (isListening && speechRecog) speechRecog.stop();
+        hideThinking();
+        const bridge = await hermes.health(true);
+        if (!bridge.ok) {
+            const msg = 'Yaar, Hermes abhi laptop pe connected nahi hai. Terminal mein `npm run bridge` chala kar dekho, phir main task karke dungi!';
+            addMsg('System', 'Hermes bridge offline (start it with: npm run bridge)', 'msg-sys');
+            addMsg('Arohi', msg, 'msg-chloe');
+            changeHermesStatus(false);
+            await speakReplyLine(msg);
+            vrmManager.resetMouth();
+            if (vizFill) vizFill.style.width = '0%';
+            return;
+        }
+        changeHermesStatus(true);
+        const msg = 'Theek hai, main yeh task Hermes ko de rahi hoon and laptop pe karke degi. Thoda wait karo na!';
+        addMsg('Arohi', msg, 'msg-chloe');
+        speakReplyLine(msg); // narrate while Hermes works (not awaited)
+        const res = await hermes.runTask(taskText);
+        hideThinking();
+        if (!res.ok) {
+            const errMsg = 'Arre yaar, Hermes task mein atak gaya — ' + String(res.error || 'error').slice(0, 200);
+            addMsg('Hermes', String(res.error || 'no output'), 'msg-sys');
+            addMsg('Arohi', errMsg, 'msg-chloe');
+            await speakReplyLine(errMsg);
+        } else {
+            const detail = res.output.split('\n').filter(function(l) { return l.trim(); }).slice(0, 4).join('\n');
+            addMsg('Hermes', detail.slice(0, 900) || 'done', 'msg-sys');
+            const summary = await hermes.summarize(taskText, res.output);
+            const finalLine = summary || 'Kaam ho gaya yaar! Hermes ne task complete kar diya.';
+            addMsg('Arohi', finalLine, 'msg-chloe');
+            await speakReplyLine(finalLine);
+        }
+        vrmManager.resetMouth();
+        if (vizFill) vizFill.style.width = '0%';
+        return;
+    }
+
     addMsg('You', text, 'msg-you');
     lastUserMessage = Date.now();
     if (isListening && speechRecog) speechRecog.stop();
@@ -350,6 +426,15 @@ function buildPoseButtons() {
 }
 
 // === INIT APP (fixed "Enter the World" open) ===
+// Reflects Hermes bridge availability on the menu status pill.
+function changeHermesStatus(online) {
+    const pill = document.getElementById('hermes-status');
+    if (!pill) return;
+    pill.textContent = online ? 'Hermes: Connected' : 'Hermes: Offline';
+    pill.style.background = online ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.15)';
+    pill.style.color = online ? '#4ade80' : '#f87171';
+}
+
 async function initApp() {
     wakeModal.classList.add('fade-out');
     setTimeout(function() { wakeModal.style.display = 'none'; }, 800);
@@ -361,6 +446,21 @@ async function initApp() {
     } catch (e) { addMsg('Error', e.message, 'msg-sys'); }
 
     try { await model.checkModelStatus(statusBadge); } catch (e) {}
+
+    // Warm the local gemma4 model (fire-and-forget) so her first reply is fast.
+    model.warmLocalModel();
+    // With `npm run dev` the Hermes bridge starts together with the page, so a
+    // single Enter boot turns on the girl AND the laptop copilot together.
+    try {
+        const h = await hermes.health(true);
+        if (h && h.ok) {
+            changeHermesStatus(true);
+            addMsg('Hermes', 'Connected — Arohi can now manage your laptop. Just ask her!', 'msg-sys');
+        } else {
+            changeHermesStatus(false);
+            addMsg('Hermes', 'Bridge not running. On this laptop start it with: npm run bridge', 'msg-sys');
+        }
+    } catch (e) {}
 
     speechRecog = audio.setupSpeechRecognition(
         function(t) { processText(t); },
@@ -385,6 +485,24 @@ function setupEventListeners() {
             wakeModal.classList.add('fade-out');
             setTimeout(function() { wakeModal.style.display = 'none'; }, 800);
             addMsg('Error', e.message + ' (modal auto-dismissed)', 'msg-sys');
+        });
+    });
+    // Double-tap Enter = turn on Hermes (laptop copilot) ALONG WITH the girl.
+    startBtn.addEventListener('dblclick', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        hermes.health(true).then(function(h) {
+            if (h && h.ok) {
+                changeHermesStatus(true);
+                const okMsg = 'Hermes online hai! Main tumhare laptop ka kaam manage kar sakti hoon. Batao kya karna hai?';
+                addMsg('Arohi', okMsg, 'msg-chloe');
+                if (appStarted) speakReplyLine(okMsg);
+            } else {
+                changeHermesStatus(false);
+                const noMsg = 'Hermes abhi off hai. Terminal mein `npm run bridge` chalao, phir double-tap karo!';
+                addMsg('System', noMsg, 'msg-sys');
+                if (appStarted) speakReplyLine(noMsg);
+            }
         });
     });
     micBtn.addEventListener('click', function() {
@@ -571,6 +689,22 @@ function setupEventListeners() {
     if (poseContainer) {
         buildPoseButtons();
     }
+    // Hermes quick-task buttons + status in the options menu.
+    var hermesStatusPill = document.getElementById('hermes-status');
+    if (hermesStatusPill) {
+        hermesStatusPill.addEventListener('click', function() {
+            hermes.health(true).then(function(h) {
+                changeHermesStatus(h && h.ok);
+                addMsg('System', h && h.ok ? 'Hermes bridge: connected' : 'Hermes bridge: offline (npm run bridge)', 'msg-sys');
+            });
+        });
+    }
+    document.querySelectorAll('[data-task]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            processText(btn.getAttribute('data-task'));
+        });
+    });
+
     canvasEl.addEventListener('dragover', function(e) { e.preventDefault(); });
     canvasEl.addEventListener('drop', function(e) {
         e.preventDefault();

@@ -228,6 +228,24 @@
         }
         #chat-clear-btn:hover { color: #ef4444; background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.4); }
         #chat-clear-btn svg { width: 16px; height: 16px; }
+        /* Hermes laptop-copilot chip in the Chloe header */
+        #hermes-btn.hermes-chip {
+            display: flex; align-items: center; gap: 7px; height: 30px;
+            padding: 0 12px; border-radius: 100px; cursor: pointer;
+            background: rgba(30,41,59,0.35); border: 1px solid rgba(148,163,184,0.22);
+            color: var(--text); font-size: 11px; font-weight: 600;
+            font-family: 'Inter', sans-serif; transition: all 0.2s; margin-right: 6px;
+        }
+        #hermes-btn.hermes-chip:hover { background: rgba(30,41,59,0.6); transform: translateY(-1px); }
+        #hermes-btn.hermes-chip.online { border-color: rgba(74,222,128,0.5); color: #4ade80; }
+        #hermes-btn.hermes-chip.offline { border-color: rgba(248,113,113,0.5); color: #f87171; }
+        #hermes-btn .hermes-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #f59e0b; flex-shrink: 0; transition: background 0.2s;
+        }
+        #hermes-btn.online .hermes-dot { background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.6); }
+        #hermes-btn.offline .hermes-dot { background: #f87171; }
+        #hermes-btn .hermes-label { white-space: nowrap; }
         #chat-window {
             max-height: 420px; overflow-y: auto; padding: 16px;
             background: linear-gradient(160deg, rgba(15, 23, 42, 0.25), rgba(30, 41, 59, 0.18));
@@ -439,6 +457,8 @@
             #chat-widget.chat-collapsed .chat-name { font-size: 12.5px; }
             #chat-widget.chat-collapsed .chat-sub { display: none; }
             #chat-widget.chat-collapsed #chat-clear-btn { display: none; }
+            #chat-widget.chat-collapsed #hermes-btn .hermes-label { display: none; }
+            #chat-widget.chat-collapsed #hermes-btn.hermes-chip { padding: 0 9px; }
 
             /* While chat is expanded, hide edge controls so they don't cover the sheet or the avatar */
             body:has(#chat-widget.chat-expanded) #dance-btn,
@@ -571,8 +591,8 @@
                     </svg>
                     <span style="flex:1;text-align:left;font-size:13px;">Engine</span>
                     <select id="model-select" style="padding:6px 10px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);border-radius:8px;color:var(--text);font:inherit;outline:none;cursor:pointer;">
-                        <option value="gemini">Gemini (Online, Default)</option>
-                        <option value="local">Local (Ollama)</option>
+                        <option value="local">Local Gemma4 (Fast, Default)</option>
+                        <option value="gemini">Gemini (Online)</option>
                     </select>
                 </div>
                 <div style="padding:0 12px;font-size:11px;color:var(--text-muted);margin-top:4px;">
@@ -619,6 +639,26 @@
                     </div>
                 </div>
             </div>
+            <div class="menu-divider"></div>
+            <div class="menu-section">
+                <div class="menu-label">Hermes · Laptop Copilot</div>
+                <div class="menu-item" style="justify-content:space-between;">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;">
+                        <path d="M14 7l-4 3v5l4 3" stroke="currentColor"/>
+                        <rect x="2" y="12" width="4" height="0" fill="currentColor"/>
+                        <line x1="9" y1="12" x2="16" y2="12" stroke="currentColor"/>
+                    </svg>
+                    <button id="hermes-status" style="flex:1;padding:9px 12px;background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3);border-radius:8px;font-weight:600;font-size:12px;cursor:pointer;text-align:left;">Hermes: Checking…</button>
+                </div>
+                <div style="padding:0 12px;font-size:11px;color:var(--text-muted);margin-bottom:8px;">
+                    Ask Arohi to manage your laptop — she runs the task with Hermes (local gemma4) and tells you where everything was saved. Start the bridge: <code style="color:var(--accent);">npm run bridge</code>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;padding:0 12px;">
+                    <button data-task="hermes: create a file named hello_arohi.txt inside your Downloads folder with the text Hi from Arohi and Hermes!" class="menu-btn-small" style="flex:1;min-width:140px;padding:10px 12px;background:rgba(34,211,238,0.15);color:#67e8f9;border:1px solid rgba(34,211,238,0.3);border-radius:10px;font-weight:600;font-size:12px;cursor:pointer;">📄 Create hello.txt in Downloads</button>
+                    <button data-task="hermes: open the Downloads folder in File Explorer" class="menu-btn-small" style="flex:1;min-width:140px;padding:10px 12px;background:rgba(148,163,184,0.15);color:#e2e8f0;border:1px solid rgba(148,163,184,0.3);border-radius:10px;font-weight:600;font-size:12px;cursor:pointer;">📂 Open Downloads</button>
+                    <button data-task="hermes: list the last 5 files added to the Downloads folder and tell me their names" class="menu-btn-small" style="flex:1;min-width:140px;padding:10px 12px;background:rgba(148,163,184,0.15);color:#e2e8f0;border:1px solid rgba(148,163,184,0.3);border-radius:10px;font-weight:600;font-size:12px;cursor:pointer;">🧾 List recent Downloads</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -660,6 +700,10 @@
                     <div class="chat-sub">AI Companion</div>
                 </div>
             </div>
+            <button id="hermes-btn" class="hermes-chip" title="Hermes Laptop Copilot — check/connect" aria-label="Hermes Laptop Copilot">
+                <span class="hermes-dot"></span>
+                <span class="hermes-label">Hermes</span>
+            </button>
             <button id="chat-clear-btn" title="Clear chat" aria-label="Clear chat">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"/>
