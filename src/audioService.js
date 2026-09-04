@@ -16,9 +16,64 @@ let elevenBlockedReason = '';
 
 const EDGE_TTS_URL = 'http://127.0.0.1:8881/v1/audio/speech';
 const KOKORO_URL = 'http://127.0.0.1:8880/v1/audio/speech';
-// Sarvam AI free Indian girl voices (Bulbul v3). Direct cloud REST API, no
-// local server needed. Sends text, gets back base64-WAV in `audios[]`.
+// Sarvam AI free Indian girl voices (Bulbul v3). Direct cloud REST API.
+// Bulbul v3 does NOT support pitch/loudness — use temperature for expressiveness.
+// Best female speakers (tier 1): priya, ishita. Younger: neha, suhani, tanya.
 const SARVAM_URL = 'https://api.sarvam.ai/text-to-speech';
+const SARVAM_PROFILES = {
+  'sarvam-priya':   { name: 'Sarvam Priya (Hindi, Best)',      lang: 'hi-IN', speaker: 'priya',   rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Best quality Hindi girl voice' },
+  'sarvam-ishita':  { name: 'Sarvam Ishita (Hindi)',            lang: 'hi-IN', speaker: 'ishita',  rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'High quality Hindi girl voice' },
+  'sarvam-neha':    { name: 'Sarvam Neha (Hindi, Young)',       lang: 'hi-IN', speaker: 'neha',    rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Young Hindi girl voice' },
+  'sarvam-suhani':  { name: 'Sarvam Suhani (Hindi, Young)',     lang: 'hi-IN', speaker: 'suhani',  rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Young Hindi girl voice' },
+  'sarvam-tanya':   { name: 'Sarvam Tanya (Hindi)',             lang: 'hi-IN', speaker: 'tanya',   rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Hindi girl voice' },
+  'sarvam-shreya':  { name: 'Sarvam Shreya (Hindi)',            lang: 'hi-IN', speaker: 'shreya',  rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Hindi girl voice' },
+  'sarvam-kavya':   { name: 'Sarvam Kavya (Marathi)',           lang: 'mr-IN', speaker: 'kavya',   rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Marathi girl voice' },
+  'sarvam-kavitha': { name: 'Sarvam Kavitha (Marathi)',         lang: 'mr-IN', speaker: 'kavitha', rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Marathi girl voice' },
+  'sarvam-swara':   { name: 'Sarvam Swara (Hindi)',             lang: 'hi-IN', speaker: 'swara',   rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Hindi girl voice' },
+  'sarvam-roopa':   { name: 'Sarvam Roopa (Hindi)',             lang: 'hi-IN', speaker: 'roopa',   rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Hindi girl voice' },
+  'sarvam-pooja':   { name: 'Sarvam Pooja (Hindi)',             lang: 'hi-IN', speaker: 'pooja',   rate: 1.0, pitch: 0,   engine: 'sarvam', desc: 'Hindi girl voice' },
+};
+
+function base64ToWavBlob(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: 'audio/wav' });
+}
+
+function sarvamProfileOrDefault(profileKey) {
+  return SARVAM_PROFILES[profileKey] || SARVAM_PROFILES['sarvam-priya'];
+}
+
+// Bulbul v3 supports a small set of params. pitch/loudness are NOT allowed
+// (they 400). We gently modulate `pace` and `temperature` to nudge the tone.
+function sarvamEmotionParams(emotion) {
+  const base = { pace: 1.0, temperature: 0.6 };
+  const e = String(emotion || '').toLowerCase();
+  if (e.includes('excited') || e.includes('happy') || e.includes('joy')) return { pace: 1.08, temperature: 0.85 };
+  if (e.includes('sad'))  return { pace: 0.92, temperature: 0.45 };
+  if (e.includes('angry')) return { pace: 1.02, temperature: 0.7 };
+  if (e.includes('surprised')) return { pace: 1.05, temperature: 0.8 };
+  if (e.includes('calm') || e.includes('sleep')) return { pace: 0.95, temperature: 0.5 };
+  return base;
+}
+
+// Sarvam Bulbul v3 request body. target_language_code (NOT language_code).
+// output_audio_codec 'wav' is returned inside `audios` as base64.
+function buildSarvamBody(text, profile, emotion) {
+  const p = Object.assign({ pace: 1.0, temperature: 0.6 }, sarvamEmotionParams(emotion));
+  return JSON.stringify({
+    text: String(text),
+    target_language_code: (profile && profile.lang) || 'hi-IN',
+    model: 'bulbul:v3',
+    speaker: (profile && profile.speaker) || 'priya',
+    pace: p.pace,
+    temperature: p.temperature,
+    speech_sample_rate: 24000,
+    output_audio_codec: 'wav',
+  });
+}
+
 let currentVoiceProfile = 'eleven-arohi';
 let edgeTTSAvailable = true;
 let kokoroAvailable = true;
@@ -26,16 +81,6 @@ let sarvamAvailable = true;
 
 const ELEVEN_PROFILES = {
     'eleven-arohi': { name: 'Arohi (ElevenLabs, Premium)', voice: CONFIG.ELEVENLABS_VOICE_ID, speed: 1.0, lang: 'hi-IN', engine: 'eleven', desc: 'Arohi\'s own premium voice' },
-};
-
-// Sarvam AI free-tier Indian female voices (Bulbul v3). Kavya/Ishita are the
-// young "teen girl" picks. Marathi uses Kavitha (Marathi female).
-const SARVAM_PROFILES = {
-    'sarvam-kavya':  { name: 'Kavya (Sarvam, Young Hindi)',   speaker: 'kavya',  lang: 'hi-IN', engine: 'sarvam', desc: 'Young natural Hindi girl (Bulbul v3)' },
-    'sarvam-ishita': { name: 'Ishita (Sarvam, Teen Hindi)',   speaker: 'ishita', lang: 'hi-IN', engine: 'sarvam', desc: 'Teen Hindi girl' },
-    'sarvam-shreya': { name: 'Shreya (Sarvam, Soft Hindi)',   speaker: 'shreya', lang: 'hi-IN', engine: 'sarvam', desc: 'Warm soft Hindi girl' },
-    'sarvam-hindi-priya': { name: 'Priya (Sarvam, Hinglish)', speaker: 'priya',  lang: 'hi-IN', engine: 'sarvam', desc: 'Natural Hinglish girl' },
-    'sarvam-marathi-kavitha': { name: 'Kavitha (Sarvam, Marathi)', speaker: 'kavitha', lang: 'mr-IN', engine: 'sarvam', desc: 'Marathi female voice' },
 };
 
 const EDGE_TTS_PROFILES = {
@@ -213,7 +258,7 @@ async function fetchTTS(text, volCallback, profileOverride) {
     // Cloud REST API: POST text, get back { audios: [ base64WAV, ... ] }.
     // Also used as an automatic premium fallback when ElevenLabs is blocked.
     if (isSarvam && sarvamAvailable && CONFIG.SARVAM_API_KEY && CONFIG.SARVAM_API_KEY.indexOf('YOUR_') !== 0) {
-        const profile = SARVAM_PROFILES[profileKey] || SARVAM_PROFILES['sarvam-kavya'];
+        const profile = sarvamProfileOrDefault(profileKey);
         try {
             const ctrl = new AbortController();
             const tid = setTimeout(() => ctrl.abort(), 20000);
@@ -223,30 +268,14 @@ async function fetchTTS(text, volCallback, profileOverride) {
                     'Content-Type': 'application/json',
                     'api-subscription-key': CONFIG.SARVAM_API_KEY,
                 },
-                body: JSON.stringify({
-                    language_code: profile.lang,
-                    speaker: profile.speaker,
-                    pitch: 0,
-                    pace: 1.0,
-                    loudness: 1.6,
-                    speech_sample_rate: 24000,
-                    enable_preprocessing: true,
-                    model: 'bulbul:v3',
-                    text: clean,
-                }),
+                body: buildSarvamBody(clean, profile, emotion),
                 signal: ctrl.signal,
             });
             clearTimeout(tid);
             if (res.ok) {
                 const j = await res.json();
                 const b64 = Array.isArray(j.audios) ? j.audios.join('') : '';
-                if (b64) {
-                    const bin = atob(b64);
-                    const bytes = new Uint8Array(bin.length);
-                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                    const blob = new Blob([bytes], { type: 'audio/wav' });
-                    return playBlob(blob, volCallback);
-                }
+                if (b64) return playBlob(base64ToWavBlob(b64), volCallback);
                 throw new Error('Sarvam returned no audio');
             }
             throw new Error('HTTP ' + res.status);
@@ -316,29 +345,14 @@ async function fetchTTS(text, volCallback, profileOverride) {
                     'Content-Type': 'application/json',
                     'api-subscription-key': CONFIG.SARVAM_API_KEY,
                 },
-                body: JSON.stringify({
-                    language_code: 'hi-IN',
-                    speaker: 'kavya',
-                    pitch: 0,
-                    pace: 1.0,
-                    loudness: 1.6,
-                    speech_sample_rate: 24000,
-                    enable_preprocessing: true,
-                    model: 'bulbul:v3',
-                    text: clean,
-                }),
+                body: buildSarvamBody(clean, { lang: 'hi-IN', speaker: 'priya' }, emotion),
                 signal: ctrl.signal,
             });
             clearTimeout(tid);
             if (res.ok) {
                 const j = await res.json();
                 const b64 = Array.isArray(j.audios) ? j.audios.join('') : '';
-                if (b64) {
-                    const bin = atob(b64);
-                    const bytes = new Uint8Array(bin.length);
-                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                    return playBlob(new Blob([bytes], { type: 'audio/wav' }), volCallback);
-                }
+                if (b64) return playBlob(base64ToWavBlob(b64), volCallback);
             }
         } catch (e) {
             console.warn('[Audio] Sarvam fallback failed:', e.message);

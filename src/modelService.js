@@ -13,7 +13,11 @@ const GEMINI_MODEL = 'gemini-3.6-flash';
 
 let currentModel = 'gemini';
 
-export function setModel(m) { currentModel = (m === 'local' || m === 'gemini') ? m : 'gemini'; }
+export function setModel(m) {
+  const next = (m === 'local' || m === 'gemini') ? m : 'gemini';
+  if (next !== currentModel) resetConversationMemory(); // clear memory on engine switch
+  currentModel = next;
+}
 export function getModel() { return currentModel; }
 
 export async function checkModelStatus(statusEl) {
@@ -50,9 +54,15 @@ const GEMINI_INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1bet
 // Models verified available for the Arohi key: gemini-3.6-flash (confirmed 200).
 const GEMINI_MODEL_CANDIDATES = ['gemini-3.6-flash', 'gemini-3-flash-preview', 'gemini-2.5-flash'];
 
+// Conversation memory. We pass back the last successfully-chained interaction
+// id so Arohi remembers the chat and never repeats herself. It is always reset
+// on any error / model switch so a stale id can never poison the next call.
+let lastInteractionId = null;
+
 async function chatWithGemini(userMessage) {
   const key = CONFIG.GEMINI_API_KEY;
   if (!key || key.indexOf('YOUR_') === 0) {
+    clearInteractionId();
     throw new Error('Gemini API key is not set. Switching to local model...');
   }
 
@@ -62,13 +72,15 @@ async function chatWithGemini(userMessage) {
       model: modelName,
       input: userMessage,
       system_instruction: SYSTEM_PROMPT,
-      store: false,
+      store: true, // enables previous_interaction_id conversation memory
       generation_config: {
         thinking_level: 'low',
         temperature: 1.0,
         max_output_tokens: 360,
       },
     };
+    // Continue the saved conversation when we have a valid prior interaction.
+    if (lastInteractionId) body.previous_interaction_id = lastInteractionId;
     // Google Search grounding is opt-in via config. On free tiers it 429s,
     // so it stays OFF by default to keep Gemini working for normal chat.
     if (CONFIG.GEMINI_GOOGLE_SEARCH) body.tools = [{ type: 'google_search' }];
@@ -89,6 +101,7 @@ async function chatWithGemini(userMessage) {
       clearTimeout(tid);
     } catch (e) {
       lastError = 'timeout/network: ' + e.message;
+      clearInteractionId();
       continue;
     }
 
@@ -99,18 +112,31 @@ async function chatWithGemini(userMessage) {
       // 404 / NOT_FOUND -> model unavailable -> try next candidate.
       // 401/403 -> bad key; 429 -> quota exhausted: both give up to local.
       if (res.status !== 404) {
+        clearInteractionId();
         throw new Error('Gemini HTTP ' + res.status + (detail ? ' (' + detail + ')' : '') + '. Trying local...');
       }
+      clearInteractionId();
       continue;
     }
 
     const data = await res.json();
     const fullText = extractInteractionText(data);
-    if (fullText) return parseReply(fullText);
+    if (fullText) {
+      // Remember this interaction so the next turn has context.
+      lastInteractionId = (typeof data.id === 'string' && data.id) ? data.id : lastInteractionId;
+      return parseReply(fullText);
+    }
     lastError = 'empty response';
+    clearInteractionId();
   }
 
+  clearInteractionId();
   throw new Error('Gemini failed (' + lastError + '). Trying local model...');
+}
+
+function clearInteractionId() {
+  // Only clear if we're not sanitizing; helper kept trivial for clarity.
+  lastInteractionId = null;
 }
 
 // Pulls the final model text out of an Interactions API response.
@@ -129,11 +155,27 @@ function extractInteractionText(data) {
   return out.trim();
 }
 
+// Client-side history for the local (Ollama) model so it also remembers the
+// chat. Rolls to the last HISTORY_MAX turns. Cleared on reset/switch.
+const HISTORY_MAX = 12;
+let localHistory = [];
+
+export function resetConversationMemory() {
+  lastInteractionId = null;
+  localHistory = [];
+}
+
 async function chatWithOllama(userMessage) {
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const historyMessages = localHistory.slice(-(HISTORY_MAX - 2)).map((m) => ({
+    role: m.role,
+    content: '[' + now + '] ' + m.content, // light timestamp so she knows it's a continuing chat
+  }));
   const payload = {
     model: OLLAMA_MODEL,
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
+      ...historyMessages,
       { role: 'user', content: userMessage },
     ],
     stream: true,
@@ -173,6 +215,12 @@ async function chatWithOllama(userMessage) {
   }
 
   if (!fullText) throw new Error('Ollama returned an empty response.');
+
+  // Remember this turn.
+  localHistory.push({ role: 'user', content: userMessage });
+  localHistory.push({ role: 'assistant', content: fullText });
+  if (localHistory.length > HISTORY_MAX) localHistory = localHistory.slice(-HISTORY_MAX);
+
   return parseReply(fullText);
 }
 
@@ -195,14 +243,14 @@ function parseReply(text) {
 // it can never pick a broken/unwanted pose. Falls back to vrmManager's
 // keyword matcher (offline-safe) if Ollama isn't running.
 const VALID_POSES = [
-  'wave_hi', 'wave_both', 'spread_arms', 'happy_bounce', 'hands_hip',
-  'lean_cool', 'nod', 'tilt_head', 'think', 'shrug', 'point', 'cross_arms',
-  'blow_kiss', 'salute', 'bow', 'stretch', 'flip_hair', 'laugh', 'surprise', 'dance',
+  'wave_hi', 'greeting', 'peace', 'clap', 'jump', 'surprised', 'blush',
+  'angry', 'sad', 'sleepy', 'relax', 'think', 'look_around', 'talk_calm',
+  'talk_whisper', 'talk_press', 'observe', 'accuse', 'deny', 'dance', 'walk',
 ];
 const VALID_EMOTIONS = ['happy', 'excited', 'sad', 'angry', 'surprised', 'calm', 'neutral'];
 
 export async function chooseAIPose(replyText, fallbackPose) {
-  const fallback = fallbackPose || 'nod';
+  const fallback = fallbackPose || 'idle_listen';
   try {
     const prompt =
       'Arohi (a teenage girl avatar) just said: "' + String(replyText).slice(0, 500) + '".\n' +

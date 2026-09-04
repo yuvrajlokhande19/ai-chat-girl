@@ -4,7 +4,15 @@ __pycache__/
 *.pyc
 VSeeFace/
 client-finder-backup/
-package-lock.json
 *.log
 .DS_Store
-src/config.js
+verify.cjs
+*-probe.cjs
+arm-test.cjs
+subpath-server.cjs
+screenshots/
+
+# Unity-only motion source files (cannot be used as browser .vrma)
+new poses/
+*.zip
+*.unitypackage

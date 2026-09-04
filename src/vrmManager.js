@@ -1,149 +1,400 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRMAnimationLoaderPlugin, createVRMAnimationClip } from '@pixiv/three-vrm-animation';
 
+// ────────────────────────────────────────────────────────────
+//  STATE
+// ────────────────────────────────────────────────────────────
 let scene, camera, renderer, currentVRM, clock, container;
-let cameraDistance = 1.8;
-let targetDistance = 1.8;
-let cameraY = 1.5;
-let targetCameraY = 1.5;
+let mixer = null; // THREE.AnimationMixer — drives ALL bone motion
+let cameraDistance = 1.8, targetDistance = 1.8;
+let cameraY = 1.5, targetCameraY = 1.5;
+let isZooming = false, zoomCooldown = 0;
+
+// Blinking (driven via VRM expression manager, not bones)
 const blink = { timer: 0, next: 3, val: 0, phase: 'open' };
-let idleTimer = 0;
-let idleAction = null;
-let idleActionTimer = 0;
-let isDancing = false;
-let danceTimer = 0;
-let danceTimeout = null;
-let mouseTarget = { x: 0, y: 0 };
-let lookAtWeight = 0;
-let isZooming = false;
-let zoomCooldown = 0;
+
+// Facial expressions (VRM expression manager)
 let expressionState = { happy: 0, sad: 0, angry: 0, surprised: 0, relaxed: 0 };
-let gesture = null; // active gesture: { name, start }
-const GESTURE_DUR = 900;
 
-const JOINT_LIMITS = {
-    leftShoulder:  { x: [-0.4, 0.4], y: [-0.25, 0.25], z: [-0.25, 0.25] },
-    rightShoulder: { x: [-0.3, 0.3], y: [-0.2, 0.2], z: [-0.2, 0.2] },
-    leftUpperArm:  { x: [-1.9, 0.9], y: [-0.4, 0.4], z: [0.5, 1.9] },
-    rightUpperArm: { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [-1.8, -0.5] },
-    leftLowerArm:  { x: [-0.5, 1.8], y: [-0.4, 0.4], z: [-0.9, 0.9] },
-    rightLowerArm: { x: [-0.3, 1.5], y: [-0.3, 0.3], z: [-0.3, 0.5] },
-    leftHand:      { x: [-0.5, 0.5], y: [-0.4, 0.4], z: [-0.4, 0.4] },
-    rightHand:     { x: [-0.4, 0.4], y: [-0.3, 0.3], z: [-0.3, 0.3] },
-    head:          { x: [-0.4, 0.3], y: [-0.6, 0.6], z: [-0.25, 0.25] },
-    neck:          { x: [-0.3, 0.2], y: [-0.4, 0.4], z: [-0.15, 0.15] },
-    spine:         { x: [-0.15, 0.08], y: [-0.08, 0.08], z: [-0.08, 0.08] },
-    chest:         { x: [-0.1, 0.04], y: [-0.04, 0.04], z: [-0.04, 0.04] },
-    upperChest:    { x: [-0.08, 0.04], y: [-0.03, 0.03], z: [-0.03, 0.03] },
-    hips:          { x: [-0.15, 0.08], y: [-0.08, 0.08], z: [-0.08, 0.08] },
-    leftUpperLeg:  { x: [-0.9, 1.2], y: [-0.2, 0.2], z: [-0.15, 0.15] },
-    rightUpperLeg: { x: [-0.9, 1.2], y: [-0.2, 0.2], z: [-0.15, 0.15] },
-    leftLowerLeg:  { x: [-0.1, 1.6], y: [-0.15, 0.15], z: [-0.1, 0.1] },
-    rightLowerLeg: { x: [-0.1, 1.6], y: [-0.15, 0.15], z: [-0.1, 0.1] },
-    leftFoot:      { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [-0.2, 0.2] },
-    rightFoot:     { x: [-0.6, 0.6], y: [-0.3, 0.3], z: [-0.2, 0.2] },
+// Animation actions
+let idleAction = null;   // always-playing idle loop
+let talkAction = null;   // talking head-bob loop
+let gestureAction = null; // current one-shot gesture
+let isTalking = false;
+let gestureTimeout = null; // timeout for mocap gesture playback
+
+// ────────────────────────────────────────────────────────────
+//  QUATERNION CLIP HELPERS
+//  All bone rotations are stored as quaternions and interpolated
+//  via SLERP — no Euler gimbal lock, no per-frame bone math.
+// ────────────────────────────────────────────────────────────
+
+function qEuler(x, y, z) {
+    return new THREE.Quaternion().setFromEuler(new THREE.Euler(x || 0, y || 0, z || 0));
+}
+
+// ────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────
+//  BASE PROCEDURAL CLIPS (ONLY idle + talk)
+//  These two are not "poses" — they keep her alive & natural at all times
+//  (soft breathing, standing stance, talking head-bob) and are the ONLY
+//  hand-authored clips in the project. ALL poses/gestures come from real
+//  recorded motion-capture (.vrma) files below.
+// ────────────────────────────────────────────────────────────
+// Neutral arms-down euler offsets used to keep the bind-pose T-pose away.
+const L_UA = [0, 0.05, 1.35];   // leftUpperArm  euler
+const R_UA = [0, -0.05, -1.35]; // rightUpperArm
+const L_LA = [0, 0, -0.25];     // leftLowerArm  (elbow bend)
+const R_LA = [0, 0, 0.25];      // rightLowerArm
+const L_H  = [0, -0.08, 0.25];  // leftHand
+const R_H  = [0, 0.08, -0.15];  // rightHand
+
+const CLIPS = {};
+
+// ────────────────────────────────────────────────────────────
+//  MOTION LIBRARY (.vrma) — real recorded human motion ONLY.
+//  Sources (no duplicates, checked by file hash):
+//    * semperai/amica official VRoid motions (dance, greeting, peace, ...)
+//    * tk256ailab/vrm-viewer official emotion clips (Angry..Thinking)
+//    * Sunwood-ai-labs/sakaki-tesshin-vrm corrected 10-motion conversation pack
+//    * flarom/figure authored idle + walk
+//    * not-elm/desktop-homunculus maid idles + grabbed
+//  Each pose name = what the recorded motion actually looks like.
+// ────────────────────────────────────────────────────────────
+const MOCAP_FILES = {
+    // — Amica / VRoid Project pack (big distinct moves) —
+    'dance':          'amica_dance.vrma',
+    'greeting':       'amica_greeting.vrma',      // cheery double-handwave greeting
+    'wave_both':      'amica_greeting.vrma',
+    'peace':          'amica_peaceSign.vrma',     // peace / victory sign
+    'victory':        'amica_peaceSign.vrma',
+    'shoot':          'amica_shoot.vrma',         // finger gun
+    'spin':           'amica_spin.vrma',          // spin around
+    'squat':          'amica_squat.vrma',         // squat down
+    'model_pose':     'amica_modelPose.vrma',     // model show-off
+    'show_body':      'amica_showFullBody.vrma',  // show off full body
+    'idle':           'amica_idle_loop.vrma',     // natural idle loop
+
+    // — tk256ailab/vrm-viewer emotion set (each file = its own emotion) —
+    'angry':          'Angry.vrma',
+    'blush':          'Blush.vrma',               // shy blush
+    'clap':           'Clapping.vrma',            // clapping hands (they meet)
+    'cheer':          'Clapping.vrma',
+    'wave_hi':        'Goodbye.vrma',             // single-hand goodbye wave = "hi"
+    'jump':           'Jump.vrma',
+    'look_around':    'LookAround.vrma',
+    'relax':          'Relax.vrma',               // relaxed / calm
+    'calm':           'Relax.vrma',
+    'sad':            'Sad.vrma',
+    'tilt_head':      'Sad.vrma',
+    'sleepy':         'Sleepy.vrma',
+    'surprised':      'Surprised.vrma',
+    'surprise':       'Surprised.vrma',
+    'think':          'Thinking.vrma',            // hand-on-chin thinking
+
+    // — sakaki-tesshin conversation / idle pack —
+    'observe':        'observe.vrma',
+    'accuse':         'accuse.vrma',
+    'deny':           'deny.vrma',
+    'idle_breathe':   'idle_breathe.vrma',
+    'idle_listen':    'idle_listen.vrma',
+    'idle_suspicion': 'idle_suspicion.vrma',
+    'talk_calm':      'talk_calm.vrma',
+    'talk_whisper':   'talk_whisper.vrma',
+    'talk_press':     'talk_press.vrma',
+
+    // — flarom/figure —
+    'walk':           'walk.vrma',
+    'idle_flarom':    'idle_flarom.vrma',
+
+    // — desktop-homunculus —
+    'grabbed':        'grabbed.vrma',
+    'idle_maid':      'idle_maid.vrma',
+    'idle_sitting':   'idle_sitting.vrma',
 };
 
-const BASE_POSE = {
-    leftShoulder:  { x: 0, y: 0, z: 0 },
-    rightShoulder: { x: 0, y: 0, z: 0 },
-    leftUpperArm:  { x: 0, y: 0.05, z: 1.35 },
-    rightUpperArm: { x: 0, y: -0.05, z: -1.35 },
-    leftLowerArm:  { x: 0, y: 0, z: -0.25 },
-    rightLowerArm: { x: 0, y: 0, z: 0.25 },
-    leftHand:      { x: 0, y: -0.08, z: 0.25 },
-    rightHand:     { x: 0, y: 0.08, z: -0.15 },
-    leftHandThumb: { x: 0, y: 0, z: 0.1 },
-    rightHandThumb: { x: 0, y: 0, z: -0.1 },
-    head:          { x: 0, y: 0, z: 0 },
-    neck:          { x: 0, y: 0, z: 0 },
-    spine:         { x: 0, y: 0, z: 0 },
-    chest:         { x: 0, y: 0, z: 0, scale: 1 },
-    upperChest:    { x: 0, y: 0, z: 0, scale: 1 },
-    hips:          { x: 0, y: 0, z: 0 },
-    leftUpperLeg:  { x: 0, y: 0, z: 0 },
-    rightUpperLeg: { x: 0, y: 0, z: 0 },
-    leftLowerLeg:  { x: 0, y: 0, z: 0 },
-    rightLowerLeg: { x: 0, y: 0, z: 0 },
-    leftFoot:      { x: 0, y: 0, z: 0 },
-    rightFoot:     { x: 0, y: 0, z: 0 },
-};
+// Store loaded mocap AnimationClips after the VRM is ready
+let mocapClips = {};
 
-const IDLE_ACTIONS = ['breathe', 'hairTouch', 'weightShift', 'lookAround', 'fidget'];
+function loadMocapClips(vrm) {
+    const animationLoader = new GLTFLoader();
+    animationLoader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
-// Pose registry: every pose the avatar can strike. Each entry maps to a case in
-// applyGesturePose(). The AI (local model) picks from these keys, and the
-// "Poses" buttons in the three-dot menu trigger them directly.
+    const targets = new Set(Object.values(MOCAP_FILES));
+    for (const file of targets) {
+        animationLoader.load(
+            'animations/' + file,
+            async (gltf) => {
+                try {
+                    const anim = gltf.userData.vrmAnimations[0];
+                    if (!anim) return;
+                    const clip = createVRMAnimationClip(anim, vrm);
+                    // Map every gesture that uses this file to this clip
+                    for (const name in MOCAP_FILES) {
+                        if (MOCAP_FILES[name] === file) mocapClips[name] = clip;
+                    }
+                } catch (e) {
+                    console.warn('[VRM] mocap failed for', file, e.message);
+                }
+            },
+            undefined,
+            (err) => console.warn('[VRM] mocap load error', file)
+        );
+    }
+}
+
+// Safely get a bone's THREE.js Object3D name from the VRM humanoid.
+// Returns null if the bone doesn't exist in this model.
+function bn(vrm, name) {
+    const node = vrm.humanoid.getNormalizedBoneNode(name);
+    return node ? node.name : null;
+}
+
+function buildClipsFromVRM(vrm) {
+    // Helper: create a quaternion track using the VRM's actual bone name
+    function qt(boneKey, keyframes) {
+        const name = bn(vrm, boneKey);
+        if (!name) return null; // bone not in this model
+        const times = [], values = [];
+        for (const [t, x, y, z] of keyframes) {
+            times.push(t);
+            const q = qEuler(x, y, z);
+            values.push(q.x, q.y, q.z, q.w);
+        }
+        return new THREE.QuaternionKeyframeTrack(name + '.quaternion', times, values);
+    }
+    function st(boneKey, keyframes) {
+        const name = bn(vrm, boneKey);
+        if (!name) return null;
+        const times = [], values = [];
+        for (const [t, x, y, z] of keyframes) {
+            times.push(t);
+            values.push(x ?? 1, y ?? 1, z ?? 1);
+        }
+        return new THREE.VectorKeyframeTrack(name + '.scale', times, values);
+    }
+    function pack(tracks) { return tracks.filter(Boolean); }
+
+    // ── IDLE BREATHING (4 s loop) ─────────────────────────
+    // Natural standing stance — arms relaxed at the sides with a gentle bend,
+    // hands slightly forward/curled, soft breathing sway. NEVER a T-pose.
+    CLIPS.idle = new THREE.AnimationClip('idle', 4, pack([
+        qt('leftUpperArm',  [[0,...L_UA], [1.3, 0.015,0.05,1.34], [2.6,...L_UA], [4,...L_UA]]),
+        qt('rightUpperArm', [[0,...R_UA], [1.3,-0.015,-0.05,-1.34],[2.6,...R_UA],[4,...R_UA]]),
+        qt('leftLowerArm',  [[0,...L_LA], [1.3, 0.02,0,-0.18], [2.6,...L_LA], [4,...L_LA]]),
+        qt('rightLowerArm', [[0,...R_LA], [1.3,-0.02,0, 0.18], [2.6,...R_LA], [4,...R_LA]]),
+        qt('leftHand',      [[0,...L_H],  [1.3, 0, -0.08, 0.28], [2.6,...L_H], [4,...L_H]]),
+        qt('rightHand',     [[0,...R_H],  [1.3, 0,  0.08,-0.17], [2.6,...R_H], [4,...R_H]]),
+        st('chest',      [[0,1,1,1],[2,1.03,1.03,1.03],[4,1,1,1]]),
+        st('upperChest', [[0,1,1,1],[2,1.03,1.03,1.03],[4,1,1,1]]),
+        qt('chest',      [[0,0,0,0],[2,0.006,0,0],[4,0,0,0]]),
+        qt('head', [[0,0,0,0],[1.5,0,0.02,0],[3,0,-0.02,0],[4,0,0,0]]),
+        qt('neck', [[0,0,0,0],[2,0,0.008,0],[4,0,0,0]]),
+        qt('spine', [[0,0,0,0],[2,0.005,0,0],[4,0,0,0]]),
+        qt('hips', [[0,0,0,0],[1.3,0,0.006,0],[2.6,0,-0.006,0],[4,0,0,0]]),
+        qt('leftShoulder',  [[0,0,0,0],[4,0,0,0]]),
+        qt('rightShoulder', [[0,0,0,0],[4,0,0,0]]),
+    ]));
+
+    // ── TALKING HEAD BOB (1.5 s loop) ─────────────────────
+    CLIPS.talk = new THREE.AnimationClip('talk', 1.5, pack([
+        qt('head', [[0, 0.03,0,0],[0.4,-0.02,0.015,0],[0.8,0.015,-0.01,0],[1.2,-0.01,0.01,0],[1.5,0.03,0,0]]),
+        qt('neck', [[0,0,0.008,0],[0.75,0,-0.008,0],[1.5,0,0.008,0]]),
+        qt('spine', [[0,0,0,0.008],[0.75,0,0,-0.008],[1.5,0,0,0.008]]),
+        qt('leftHand',  [[0,...L_H],[0.5,0,-0.08,0.27],[1,0,-0.08,0.24],[1.5,...L_H]]),
+        qt('rightHand', [[0,...R_H],[0.5,0,0.08,-0.16],[1,0,0.08,-0.13],[1.5,...R_H]]),
+    ]));
+
+    // NOTE: All POSE / GESTURE clips come from recorded .vrma motion files
+    // (MOCAP_FILES). No hand-authored arm choreography exists in the project —
+    // that was the source of the "hands behind the back" artifacts.
+
+    console.log('[VRM] Clips built:', Object.keys(CLIPS));
+}
+
+// ────────────────────────────────────────────────────────────
+//  POSE REGISTRY & MATCHING
+// ────────────────────────────────────────────────────────────
+// 'cat' groups options in the three-dot menu. Primary/hero poses are listed
+// first so the most-used motions (Happy, Greeting, Thinking, Dance) are easy
+// to find and visually distinct.
+// Every pose below maps 1:1 to a real recorded .vrma motion file (MOCAP_FILES)
+// and its name = what that recording actually does. 'cat' groups options in the
+// three-dot menu into separate sections.
 const POSES = {
-    'wave_hi':       { label: 'Wave Hi',            emotion: 'happy',    desc: '"Hi!" wave with clean elbow/forearm/hand alignment' },
-    'wave_both':     { label: 'Wave Both Hands',    emotion: 'excited',  desc: 'Friendly double-hand wave' },
-    'spread_arms':   { label: 'Spread Arms',        emotion: 'happy',    desc: 'Open-arms greeting, palms up' },
-    'happy_bounce':  { label: 'Happy Bounce',       emotion: 'excited',  desc: 'Little cheer: arms up + knee bounce' },
-    'hands_hip':     { label: 'Hands on Hips',      emotion: 'happy',    desc: 'Confident boss stance' },
-    'lean_cool':     { label: 'Cool Lean',          emotion: 'neutral',  desc: 'Relaxed weight-on-one-hip lean' },
-    'nod':           { label: 'Nod',                emotion: 'calm',     desc: 'Agreeing nod' },
-    'tilt_head':     { label: 'Tilt Head',          emotion: 'sad',      desc: 'Gentle head tilt' },
-    'think':         { label: 'Think',              emotion: 'neutral',  desc: 'Hand to chin, thinking' },
-    'shrug':         { label: 'Shrug',              emotion: 'neutral',  desc: '\'I don\'t know\' shrug' },
-    'point':         { label: 'Point',              emotion: 'excited',  desc: 'Pointing out' },
-    'cross_arms':    { label: 'Cross Arms',         emotion: 'neutral',  desc: 'Arms crossed' },
-    'blow_kiss':     { label: 'Blow Kiss',          emotion: 'happy',    desc: 'Playful kiss' },
-    'salute':        { label: 'Salute',             emotion: 'excited',  desc: 'Friendly salute' },
-    'bow':           { label: 'Bow',                emotion: 'neutral',  desc: 'Polite bow' },
-    'stretch':       { label: 'Stretch',            emotion: 'relaxed',  desc: 'Arms-up stretch' },
-    'flip_hair':     { label: 'Flip Hair',          emotion: 'excited',  desc: 'Hair flip' },
-    'laugh':         { label: 'Laugh',              emotion: 'happy',    desc: 'Laughing' },
-    'surprise':      { label: 'Surprise',           emotion: 'surprised', desc: 'Hands up, surprised' },
-    'dance':         { label: 'Dance',              emotion: 'excited',  desc: 'Quick dance' },
+    // —— Greetings & Waves ——
+    'wave_hi':       { label: 'Hi Wave',           emotion: 'happy',     desc: 'Single-hand hello wave',  cat: 'Greetings' },
+    'greeting':      { label: 'Greeting',          emotion: 'excited',   desc: 'Cheery two-hand greeting',cat: 'Greetings' },
+    'peace':         { label: 'Peace Sign',        emotion: 'happy',     desc: 'Peace / victory sign ✌️',  cat: 'Greetings' },
+
+    // —— Emotions ——
+    'clap':          { label: 'Clap / Cheer',      emotion: 'excited',   desc: 'Clapping hands',           cat: 'Emotions' },
+    'jump':          { label: 'Jump',              emotion: 'excited',   desc: 'Little jump',              cat: 'Emotions' },
+    'surprised':     { label: 'Surprised',         emotion: 'surprised', desc: 'Surprised reaction',       cat: 'Emotions' },
+    'blush':         { label: 'Blush / Shy',       emotion: 'excited',   desc: 'Shy blush',                cat: 'Emotions' },
+    'angry':         { label: 'Angry',             emotion: 'angry',     desc: 'Cross angry',              cat: 'Emotions' },
+    'sad':           { label: 'Sad',               emotion: 'sad',       desc: 'Sad / soft pose',          cat: 'Emotions' },
+    'sleepy':        { label: 'Sleepy',            emotion: 'sleepy',    desc: 'Sleepy / tired',           cat: 'Emotions' },
+    'relax':         { label: 'Relaxed',           emotion: 'relaxed',   desc: 'Calm relaxed stance',      cat: 'Emotions' },
+
+    // —— Thinking & Talk ——
+    'think':         { label: 'Thinking',          emotion: 'neutral',   desc: 'Hand-on-chin thinking',    cat: 'Thinking' },
+    'look_around':   { label: 'Look Around',       emotion: 'neutral',   desc: 'Looking around',           cat: 'Thinking' },
+    'talk_calm':     { label: 'Talk Calm',         emotion: 'calm',      desc: 'Calm talking motion',      cat: 'Thinking' },
+    'talk_whisper':  { label: 'Talk Whisper',      emotion: 'calm',      desc: 'Quiet whisper motion',     cat: 'Thinking' },
+    'talk_press':    { label: 'Talk Press',        emotion: 'excited',   desc: 'Press a point',            cat: 'Thinking' },
+
+    // —— Idle Breathe & Listen ——
+    'idle_breathe':  { label: 'Idle Breathe',      emotion: 'calm',      desc: 'Natural breathing idle',   cat: 'Idle' },
+    'idle_listen':   { label: 'Idle Listen',       emotion: 'calm',      desc: 'Listening attention',      cat: 'Idle' },
+    'idle_suspicion':{ label: 'Idle Suspicion',    emotion: 'neutral',   desc: 'Quiet suspicion',          cat: 'Idle' },
+    'idle_maid':     { label: 'Idle Maid',         emotion: 'relaxed',   desc: 'Maiden standing idle',     cat: 'Idle' },
+    'idle_sitting':  { label: 'Idle Sitting',      emotion: 'relaxed',   desc: 'Seated idle',              cat: 'Idle' },
+    'idle_flarom':   { label: 'Idle Gentle',       emotion: 'relaxed',   desc: 'Gentle idle sway',         cat: 'Idle' },
+
+    // —— Scene Poses ——
+    'observe':       { label: 'Observe',           emotion: 'neutral',   desc: 'Watchful observing',       cat: 'Scene' },
+    'accuse':        { label: 'Accuse',            emotion: 'angry',     desc: 'Pointing accusation',      cat: 'Scene' },
+    'deny':          { label: 'Deny',              emotion: 'neutral',   desc: 'Hands-up denial',          cat: 'Scene' },
+    'grabbed':       { label: 'Grabbed',           emotion: 'surprised', desc: 'Caught / grabbed',         cat: 'Scene' },
+
+    // —— Moves & Dance ——
+    'dance':         { label: 'Dance',             emotion: 'excited',   desc: 'Real dance',               cat: 'Moves' },
+    'walk':          { label: 'Walk',              emotion: 'neutral',   desc: 'Walk cycle',               cat: 'Moves' },
+    'spin':          { label: 'Spin Around',       emotion: 'excited',   desc: 'Spin 360°',                cat: 'Moves' },
+    'squat':         { label: 'Squat',             emotion: 'excited',   desc: 'Squat down',               cat: 'Moves' },
+    'shoot':         { label: 'Finger Gun',        emotion: 'excited',   desc: 'Playful finger gun',       cat: 'Moves' },
+    'model_pose':    { label: 'Model Pose',        emotion: 'happy',     desc: 'Show-off pose',            cat: 'Moves' },
+    'show_body':     { label: 'Show Off',          emotion: 'excited',   desc: 'Show off outfit',          cat: 'Moves' },
 };
 
 function getPoseList() { return { ...POSES }; }
 
-// Keyword-based pose selection (offline fallback when the local AI model is
-// not available). Returns a valid pose key from the registry.
+// Emotion -> a real mocap pose to hold WHILE speaking that line (keeps body +
+// face in sync for the whole utterance). All values are real .vrma clips.
+const EMOTION_POSE = {
+    'happy':     'wave_hi',
+    'excited':   'clap',
+    'sad':       'sad',
+    'angry':     'angry',
+    'surprised': 'surprised',
+    'calm':      'idle_breathe',
+    'neutral':   'idle_listen',
+    'relaxed':   'relax',
+    'sleepy':    'sleepy',
+};
+
+function poseForEmotion(emotion) {
+    const e = String(emotion || '').toLowerCase();
+    return EMOTION_POSE[e] || 'idle_listen';
+}
+
+// Keyword -> real mocap pose. Every key below has a loaded .vrma clip.
 function matchPose(text) {
     const t = String(text || '').toLowerCase();
     const has = (ws) => ws.some((w) => t.includes(w));
-    if (has(['dance', 'nach', 'nacho'])) return 'dance';
-    if (has(['wave', 'hii', 'hi ', 'hello', 'namaste', 'swagat', 'hey'])) return 'wave_hi';
-    if (has(['haha', 'lol', 'laugh', 'giggle', 'mazaak', 'joke', 'hasna'])) return 'laugh';
-    if (has(['happy', 'khush', 'mast', 'yay', 'excited', 'awesome', 'celebrate'])) return 'happy_bounce';
-    if (has(['sad', 'udaas', 'dukh', 'dukhi', 'worried', 'sob', 'cry'])) return 'tilt_head';
-    if (has(['angry', 'gussa', 'annoyed', 'frustrated', 'strict', 'nonsense'])) return 'cross_arms';
-    if (has(['wow', 'omg', 'arre', 'sach', 'seriously', 'shocked', 'surprise'])) return 'surprise';
-    if (has(['think', 'soch', 'muse', 'idea', 'hmm', 'kya soch'])) return 'think';
-    if (has(['point', 'dekho', 'look', 'vaha', 'wahan'])) return 'point';
-    if (has(['kiss', 'blush', 'shy'])) return 'blow_kiss';
-    if (has(['thank', 'shukriya', 'dhanyawad'])) return 'bow';
-    if (has(['bye', 'goodbye', 'alvida', 'tata', 'chalta'])) return 'wave_both';
-    return 'nod';
+    if (has(['grabbed', 'catch', 'pakdo'])) return 'grabbed';
+    if (has(['accuse', 'point out', 'ilzaam', 'complaint'])) return 'accuse';
+    if (has(['deny', 'not me', 'naheen', 'insaan'])) return 'deny';
+    if (has(['dance', 'nach', 'nacho', 'party'])) return 'dance';
+    if (has(['walk', 'chalo', 'ghoomna', 'chale'])) return 'walk';
+    if (has(['wave', 'hii', 'hi ', 'hello', 'hey', 'aayush'])) return 'wave_hi';
+    if (has(['namaste', 'swagat', 'greeting', 'good to meet'])) return 'greeting';
+    if (has(['peace', 'shanti', 'victory'])) return 'peace';
+    if (has(['haha', 'lol', 'laugh', 'giggle', 'mazaak', 'joke', 'clap', 'tali', 'cheer'])) return 'clap';
+    if (has(['happy', 'khush', 'mast', 'yay', 'excited', 'awesome', 'wow'])) return 'clap';
+    if (has(['jump', 'kud', 'jumping'])) return 'jump';
+    if (has(['spin', 'ghoom', 'turn around'])) return 'spin';
+    if (has(['squat', 'baith', 'crouch'])) return 'squat';
+    if (has(['sad', 'udaas', 'dukh', 'dukhi', 'worried'])) return 'sad';
+    if (has(['angry', 'gussa', 'annoyed', 'frustrated'])) return 'angry';
+    if (has(['omg', 'arre', 'sach', 'shocked', 'surprise', 'really'])) return 'surprised';
+    if (has(['think', 'soch', 'hmm', 'idea'])) return 'think';
+    if (has(['look', 'dekho', 'wahan', 'idhar'])) return 'look_around';
+    if (has(['sleep', 'so', 'neend', 'thak', 'yawn'])) return 'sleepy';
+    if (has(['shoot', 'pew', 'gun'])) return 'shoot';
+    if (has(['kiss', 'blush', 'shy'])) return 'blush';
+    if (has(['thank', 'shukriya'])) return 'greeting';
+    if (has(['bye', 'goodbye', 'tata', 'alvida'])) return 'wave_hi';
+    if (has(['smile', 'muskura', 'relax', 'aram'])) return 'relax';
+    if (has(['listen', 'sun', 'suno', 'spy', 'chup'])) return 'idle_listen';
+    return 'idle_breathe';
 }
 
-function lerp(a, b, t) { return a + (b - a) * t; }
-function easeInOut(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
-function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-
-function applyJointLimits(boneName, rot) {
-    const limits = JOINT_LIMITS[boneName];
-    if (!limits) return rot;
-    return {
-        x: clamp(rot.x, limits.x[0], limits.x[1]),
-        y: clamp(rot.y, limits.y[0], limits.y[1]),
-        z: clamp(rot.z, limits.z[0], limits.z[1]),
-    };
-}
-
-function getBone(h, name) { return h.getNormalizedBoneNode(name); }
-
+// ────────────────────────────────────────────────────────────
+//  INIT
+// ────────────────────────────────────────────────────────────
 export function getVRM() { return currentVRM; }
+window.__vrmPose = () => {
+    if (!currentVRM || !currentVRM.humanoid) return { err: 'no vrm' };
+    const pos = (bone) => {
+        const n = currentVRM.humanoid.getNormalizedBoneNode(bone);
+        if (!n) return null;
+        n.updateWorldMatrix(true, false);
+        const p = new THREE.Vector3();
+        n.getWorldPosition(p);
+        return [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)];
+    };
+    const lShoulder = pos('leftShoulder'), rShoulder = pos('rightShoulder');
+    const lElbow = pos('leftUpperArm'), rElbow = pos('rightUpperArm');
+    const lHand = pos('leftHand'), rHand = pos('rightHand');
+    return { shoulderL: lShoulder, shoulderR: rShoulder, elbowL: lElbow, elbowR: rElbow, handL: lHand, handR: rHand };
+};
+
+// ── TEMPORARY CALIBRATION HOOK (used by pose2-probe.cjs, removed later) ──
+// Sets a single bone to the given euler (all other bones neutral) and plays a
+// short clip, so world hand/elbow positions can be measured for that rotation.
+window.__calib = (bone, x, y, z, dur) => {
+    if (!mixer || !currentVRM || !currentVRM.humanoid) return { err: 'no vrm' };
+    const neutral = { leftUpperArm: L_UA, rightUpperArm: R_UA, leftLowerArm: L_LA, rightLowerArm: R_LA, leftHand: L_H, rightHand: R_H };
+    try {
+        if (gestureTimeout) { clearTimeout(gestureTimeout); gestureTimeout = null; }
+        if (gestureAction) { gestureAction.stop(); gestureAction.weight = 0; gestureAction = null; }
+        const dur2 = dur || 2.5;
+        const boneName = bn(currentVRM, bone);
+        if (!boneName) return { err: 'no bone ' + bone };
+        const times = [0];
+        const vals = [];
+        const q = qEuler(x || 0, y || 0, z || 0);
+        vals.push(q.x, q.y, q.z, q.w);
+        const tracks = [];
+        // Neutral tracks so other bones don't fall to bind T-pose
+        for (const b in neutral) {
+            const nm = bn(currentVRM, b);
+            if (!nm || b === bone) continue;
+            const t2 = [0], v2 = [];
+            const q2 = qEuler(neutral[b][0], neutral[b][1], neutral[b][2]);
+            v2.push(q2.x, q2.y, q2.z, q2.w);
+            tracks.push(new THREE.QuaternionKeyframeTrack(nm + '.quaternion', t2, v2));
+        }
+        tracks.push(new THREE.QuaternionKeyframeTrack(boneName + '.quaternion', times, vals));
+        const clip = new THREE.AnimationClip('__calib', dur2, tracks);
+        const act = mixer.clipAction(clip);
+        act.setLoop(THREE.LoopRepeat);
+        act.reset().play();
+        act.weight = 1;
+        if (idleAction) idleAction.weight = 0;
+        const settle = setTimeout(() => {
+            if (idleAction) idleAction.weight = 1;
+            act.stop(); act.weight = 0;
+        }, dur2 * 1000);
+        window.__calibStop = () => clearTimeout(settle);
+        return { ok: true, bone: bone, euler: [x, y, z] };
+    } catch (e) {
+        return { err: String(e && e.message || e) };
+    }
+};
 
 export function init(el, modelPath) {
     container = el;
     if (renderer) { renderer.dispose(); container.innerHTML = ''; }
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
+    // Foggy dark background — atmospheric, not flat black
+    scene.background = new THREE.Color(0x080810);
+    scene.fog = new THREE.FogExp2(0x080810, 0.12);
 
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
     camera.position.set(0, cameraY, cameraDistance);
@@ -155,6 +406,7 @@ export function init(el, modelPath) {
     renderer.toneMappingExposure = 1.1;
     container.appendChild(renderer.domElement);
 
+    // Lighting — soft, cinematic
     const key = new THREE.DirectionalLight(0xffffff, 1.6);
     key.position.set(2, 3, 2);
     scene.add(key);
@@ -173,30 +425,35 @@ export function init(el, modelPath) {
     window.addEventListener('wheel', onZoom, { passive: false });
     let lastTouch = 0;
     window.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 2) lastTouch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (e.touches.length === 2) lastTouch = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+        );
     });
     window.addEventListener('touchmove', (e) => {
         if (e.touches.length === 2) {
-            const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            const d = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY
+            );
             targetDistance = Math.max(0.7, Math.min(4.0, targetDistance + (lastTouch - d) * 0.005));
-            lastTouch = d;
+            targetCameraY = 1.5;
+            isZooming = true;
+            zoomCooldown = 1.0;
         }
     });
 }
 
-// Elements that should scroll normally instead of zooming the camera when the
-// user wheels over them (chat panel, models/vrms menues, three-dot menu, ...).
+// ────────────────────────────────────────────────────────────
+//  VRM LOADING
+// ────────────────────────────────────────────────────────────
 const NON_ZOOM_SELECTOR = '#chat-widget, #chat-window, #chat-header, '
     + '#menu-dropdown, #menu, .menu-panel, .dropdown-menu, select, '
     + '[data-scroll], .scroll';
 
 function onZoom(e) {
-    // If the wheel happens over a scrollable or interactive overlay, let the
-    // page/dropdown scroll normally instead of zooming the 3D camera.
     const t = e.target;
-    if (t && typeof t.closest === 'function' && t.closest(NON_ZOOM_SELECTOR)) {
-        return;
-    }
+    if (t && typeof t.closest === 'function' && t.closest(NON_ZOOM_SELECTOR)) return;
     e.preventDefault();
     targetDistance = Math.max(0.7, Math.min(4.0, targetDistance + e.deltaY * 0.002));
     targetCameraY = 1.5;
@@ -217,8 +474,16 @@ function loadModel(path) {
                 VRMUtils.rotateVRM0(vrm);
 
                 const boneNames = Object.keys(vrm.humanoid.normalizedHumanBones);
-                console.log('[VRM] Bones found:', boneNames);
-                console.log('[VRM] Model ready with biomechanical joint limits');
+                console.log('[VRM] Bones:', boneNames);
+
+                // Create AnimationMixer AFTER VRM loads — clips use actual bone node names
+                mixer = new THREE.AnimationMixer(vrm.scene);
+                mixer.addEventListener('finished', onClipFinished);
+
+                // Build animation clips using real bone names from the loaded VRM
+                buildClipsFromVRM(vrm);
+                loadMocapClips(vrm);
+                startIdle();
             } else {
                 scene.add(gltf.scene);
             }
@@ -239,6 +504,112 @@ function makePlaceholder() {
     scene.add(g);
 }
 
+// ────────────────────────────────────────────────────────────
+//  ANIMATION ACTIONS — mixer.clipAction(clip).play()
+// ────────────────────────────────────────────────────────────
+
+// Ensures EXACTLY ONE action drives the skeleton at a time so she NEVER leaks
+// back into the bind-pose T-pose: gesture/talk fade in, idle fades out, and on
+// finish the gesture is stopped AND its weight hard-zeroed while idle returns
+// to full weight.
+function restoreIdle() {
+    if (gestureAction) { gestureAction.stop(); gestureAction.weight = 0; gestureAction = null; }
+    if (gestureTimeout) { clearTimeout(gestureTimeout); gestureTimeout = null; }
+    if (heldPoseTimeout) { clearTimeout(heldPoseTimeout); heldPoseTimeout = null; }
+    if (talkAction) { talkAction.stop(); talkAction.weight = 0; talkAction = null; }
+    if (idleAction) { idleAction.weight = 1; idleAction.reset(); }
+}
+
+function startIdle() {
+    if (!mixer) return;
+    // Prefer the recorded natural idle loop once loaded; the procedural idle is
+    // the fallback until then (and for models where the mocap doesn't apply).
+    const clip = mocapClips['idle'] || CLIPS.idle;
+    if (!clip) return;
+    idleAction = mixer.clipAction(clip);
+    idleAction.setLoop(THREE.LoopRepeat);
+    idleAction.reset().play();
+    idleAction.weight = 1;
+}
+
+// opts.hold: true => caller owns the restore (used by holdPose so a pose can
+// span the exact duration of a spoken line without dropping early).
+function playGesture(name, duration, opts = {}) {
+    if (!mixer) return;
+
+    // Real recorded motion-capture only. If the mocap for this pose isn't
+    // loaded yet (or doesn't exist), do nothing — never fall back to
+    // hand-authored arm choreography.
+    const clip = mocapClips[name];
+    if (!clip) { console.warn('[VRM] no mocap clip for pose:', name); return; }
+
+    // Tear down any previous gesture / talk so weights never accumulate.
+    if (gestureAction) { gestureAction.stop(); gestureAction.weight = 0; gestureAction = null; }
+    if (gestureTimeout) { clearTimeout(gestureTimeout); gestureTimeout = null; }
+    if (heldPoseTimeout) { clearTimeout(heldPoseTimeout); heldPoseTimeout = null; }
+    if (talkAction) { talkAction.stop(); talkAction.weight = 0; talkAction = null; }
+
+    gestureAction = mixer.clipAction(clip);
+    // Loop while held so the motion reads clearly and the pose persists.
+    gestureAction.setLoop(THREE.LoopRepeat);
+    gestureAction.reset();
+    gestureAction.weight = 1;
+    if (idleAction) idleAction.weight = 0;
+    gestureAction.play();
+
+    if (opts.hold) return; // restoreIdle will be called by the caller (clearHeldPose)
+
+    const loopMs = duration || 2400;
+    gestureTimeout = setTimeout(restoreIdle, loopMs);
+}
+
+// Holds a real-mocap pose until clearHeldPose() — used to keep her body moving
+// for the WHOLE time she is speaking, from the first syllable to the last.
+let heldPoseTimeout = null;
+export function holdPose(name, duration) {
+    if (!currentVRM || !currentVRM.humanoid || !mixer) return;
+    if (!mocapClips[name]) return;
+    playGesture(name, 0, { hold: true });
+    if (duration) heldPoseTimeout = setTimeout(restoreIdle, duration);
+}
+
+export function clearHeldPose() {
+    if (heldPoseTimeout) { clearTimeout(heldPoseTimeout); heldPoseTimeout = null; }
+    restoreIdle();
+}
+
+function startTalk() {
+    if (!mixer || !CLIPS.talk || talkAction) return;
+    // Keep the face/bob talking without stealing the body pose if a gesture is
+    // already driving it — the talk clip only touches head/neck/hands.
+    talkAction = mixer.clipAction(CLIPS.talk);
+    talkAction.setLoop(THREE.LoopRepeat);
+    talkAction.reset().play();
+    talkAction.weight = 1;
+}
+
+function stopTalk() {
+    if (talkAction) {
+        talkAction.stop();
+        talkAction.weight = 0;
+        talkAction = null;
+    }
+}
+
+function onClipFinished(e) {
+    // LoopRepeat actions never "finish" on their own; this is a safety net in
+    // case any LoopOnce action completes — force back to idle & zero weights.
+    if (e.action) {
+        e.action.stop();
+        e.action.weight = 0;
+    }
+    if (e.action === gestureAction) gestureAction = null;
+    if (idleAction) { idleAction.weight = 1; idleAction.reset(); }
+}
+
+// ────────────────────────────────────────────────────────────
+//  RENDER LOOP
+// ────────────────────────────────────────────────────────────
 function startLoop() { clock.start(); loop(); }
 
 function loop() {
@@ -246,6 +617,7 @@ function loop() {
     const dt = clock.getDelta();
     const t = clock.getElapsedTime();
 
+    // Camera smooth follow
     cameraDistance += (targetDistance - cameraDistance) * 0.08;
     cameraY += (targetCameraY - cameraY) * 0.08;
     camera.position.set(0, cameraY, cameraDistance);
@@ -255,158 +627,38 @@ function loop() {
         zoomCooldown -= dt;
         if (zoomCooldown <= 0) {
             isZooming = false;
-            mouseTarget.x = 0;
-            mouseTarget.y = 0;
+            mouseTarget = { x: 0, y: 0 };
         }
     }
 
     if (currentVRM && currentVRM.humanoid) {
-        const h = currentVRM.humanoid;
+        // Update AnimationMixer — drives ALL bone rotations via quaternion SLERP
+        if (mixer) mixer.update(dt);
 
-        const pose = JSON.parse(JSON.stringify(BASE_POSE));
-
-        const breath = 1 + Math.sin(t * 1.8) * 0.025;
-        pose.chest.scale = breath;
-        pose.upperChest.scale = breath;
-        pose.chest.x += Math.sin(t * 1.8) * 0.005;
-
-        pose.leftUpperArm.x  += Math.sin(t * 0.5) * 0.015;
-        pose.rightUpperArm.x += Math.sin(t * 0.5 + 1) * 0.015;
-        pose.leftHand.z      += Math.sin(t * 0.7) * 0.015;
-        // Right hand stays still - no micro movements
-        pose.head.y          += Math.sin(t * 0.3) * 0.01;
-        pose.head.x          += Math.cos(t * 0.25) * 0.005;
-
-        // Straight-on look: Arohi faces the camera and never follows the mouse,
-        // so she is always making direct eye contact with the user.
-        pose.head.y = 0;
-        pose.head.x = 0;
-        pose.neck.y = 0;
-        pose.neck.x = 0;
-
+        // Facial expressions (VRM expression manager — separate from bones).
+        // Only the dominant emotion shows; it eases in via setEmotionExpression
+        // and decays slowly so she holds an expression while speaking.
         if (currentVRM.expressionManager) {
+            const em = currentVRM.expressionManager;
             const exp = expressionState;
-            exp.happy     *= 0.98;
-            exp.sad       *= 0.98;
-            exp.angry     *= 0.98;
-            exp.surprised *= 0.98;
-            exp.relaxed   = 1 - Math.max(exp.happy, exp.sad, exp.angry, exp.surprised);
-            
-            if (exp.happy > 0.05) currentVRM.expressionManager.setValue('happy', exp.happy);
-            if (exp.sad > 0.05) currentVRM.expressionManager.setValue('sad', exp.sad);
-            if (exp.angry > 0.05) currentVRM.expressionManager.setValue('angry', exp.angry);
-            if (exp.surprised > 0.05) currentVRM.expressionManager.setValue('surprised', exp.surprised);
+            exp.happy     *= 0.95;
+            exp.sad       *= 0.95;
+            exp.angry     *= 0.95;
+            exp.surprised *= 0.95;
+
+            // Apply only the strongest emotion (so faces don't look twisted)
+            const names = { happy: exp.happy, sad: exp.sad, angry: exp.angry, surprised: exp.surprised };
+            let best = 'happy', bestVal = 0.05;
+            for (const k in names) { if (names[k] > bestVal) { bestVal = names[k]; best = k; } }
+
+            // Only blend the dominant one; zero out the rest
+            em.setValue('happy', best === 'happy' ? bestVal : 0);
+            em.setValue('sad', best === 'sad' ? bestVal : 0);
+            em.setValue('angry', best === 'angry' ? bestVal : 0);
+            em.setValue('surprised', best === 'surprised' ? bestVal : 0);
         }
 
-        if (!isDancing) {
-            idleTimer += dt;
-            if (idleTimer > 8 + Math.random() * 12) {
-                idleTimer = 0;
-                idleAction = IDLE_ACTIONS[Math.floor(Math.random() * IDLE_ACTIONS.length)];
-                idleActionTimer = 0;
-                console.log('[Idle]', idleAction);
-            }
-
-            if (idleAction) {
-                idleActionTimer += dt;
-                const at = easeInOut(Math.min(idleActionTimer / 1.5, 1));
-
-                switch (idleAction) {
-                    case 'hairTouch':
-                        if (at < 1) {
-                            pose.leftShoulder.x = lerp(0, 0.2, at);
-                            pose.leftUpperArm.z = lerp(1.35, 1.7, at);
-                            pose.leftUpperArm.x = lerp(0, -0.3, at);
-                            pose.leftLowerArm.x = lerp(0, 0.8, at);
-                            pose.head.z = lerp(0, -0.05, at);
-                        } else {
-                            pose.leftShoulder.x = 0.2 + Math.sin(t * 0.5) * 0.02;
-                            pose.leftUpperArm.z = 1.7;
-                            pose.leftUpperArm.x = -0.3;
-                            pose.leftLowerArm.x = 0.8;
-                            pose.head.z = -0.05;
-                        }
-                        if (idleActionTimer > 5) { idleAction = null; }
-                        break;
-
-                    case 'weightShift':
-                        pose.hips.z = Math.sin(t * 0.5) * 0.06;
-                        pose.hips.x = Math.cos(t * 0.5) * 0.02;
-                        pose.head.z = -Math.sin(t * 0.5) * 0.04;
-                        pose.neck.z = -Math.sin(t * 0.5) * 0.02;
-                        // Only left arm moves during weight shift
-                        pose.leftUpperArm.z = lerp(1.35, 1.25, 0.5 + Math.sin(t * 0.6) * 0.5);
-                        if (idleActionTimer > 6) { idleAction = null; }
-                        break;
-
-                    case 'lookAround':
-                        pose.head.y = Math.sin(t * 0.35) * 0.35;
-                        pose.head.x = Math.cos(t * 0.25) * 0.08;
-                        pose.neck.y = pose.head.y * 0.7;
-                        pose.neck.x = pose.head.x * 0.6;
-                        // Only left arm subtle movement
-                        pose.leftUpperArm.z = lerp(1.35, 1.3, Math.sin(t * 0.2) * 0.5 + 0.5);
-                        if (idleActionTimer > 8) { idleAction = null; }
-                        break;
-
-                    case 'fidget':
-                        // Only left hand subtle fidget
-                        pose.leftHand.z = lerp(0.25, 0.3, Math.sin(t * 3) * 0.5 + 0.5);
-                        pose.leftHand.x = Math.sin(t * 2.5) * 0.03;
-                        if (idleActionTimer > 3) { idleAction = null; }
-                        break;
-                }
-            }
-        }
-
-        const speed = 0.08;
-
-        // Apply active gesture (overrides pose targets so hand gestures are
-        // accurate, visible and smoothly animated instead of being cancelled
-        // by the base-pose lerp).
-        if (gesture) {
-            const elapsed = performance.now() - gesture.start;
-            const p = Math.min(elapsed / GESTURE_DUR, 1);
-            applyGesturePose(pose, p);
-            if (p >= 1) gesture = null;
-        }
-        if (currentVRM && currentVRM.humanoid) {
-            const applyBone = (name, target) => {
-                const bone = getBone(h, name);
-                if (!bone) return;
-                const limited = applyJointLimits(name, target);
-                if (limited.x !== undefined) bone.rotation.x += (limited.x - bone.rotation.x) * speed;
-                if (limited.y !== undefined) bone.rotation.y += (limited.y - bone.rotation.y) * speed;
-                if (limited.z !== undefined) bone.rotation.z += (limited.z - bone.rotation.z) * speed;
-            };
-
-            applyBone('leftShoulder', pose.leftShoulder);
-            applyBone('rightShoulder', pose.rightShoulder);
-            applyBone('leftUpperArm', pose.leftUpperArm);
-            applyBone('rightUpperArm', pose.rightUpperArm);
-            applyBone('leftLowerArm', pose.leftLowerArm);
-            applyBone('rightLowerArm', pose.rightLowerArm);
-            applyBone('leftHand', pose.leftHand);
-            applyBone('rightHand', pose.rightHand);
-            applyBone('head', pose.head);
-            applyBone('neck', pose.neck);
-            applyBone('spine', pose.spine);
-            applyBone('chest', pose.chest);
-            applyBone('upperChest', pose.upperChest);
-            applyBone('hips', pose.hips);
-            applyBone('leftUpperLeg', pose.leftUpperLeg);
-            applyBone('rightUpperLeg', pose.rightUpperLeg);
-            applyBone('leftLowerLeg', pose.leftLowerLeg);
-            applyBone('rightLowerLeg', pose.rightLowerLeg);
-            applyBone('leftFoot', pose.leftFoot);
-            applyBone('rightFoot', pose.rightFoot);
-
-            const chestBone = getBone(h, 'chest');
-            const upperChestBone = getBone(h, 'upperChest');
-            if (chestBone) chestBone.scale.setScalar(pose.chest.scale);
-            if (upperChestBone) upperChestBone.scale.setScalar(pose.upperChest.scale);
-        }
-
+        // Blinking
         blink.timer += dt;
         if (blink.timer >= blink.next && blink.phase === 'open') {
             blink.timer = 0;
@@ -430,274 +682,146 @@ function loop() {
     renderer.render(scene, camera);
 }
 
+let mouseTarget = { x: 0, y: 0 };
+
 function resize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-export function startDance() {
+// ────────────────────────────────────────────────────────────
+//  DANCE (special — keeps idle but speeds up)
+// ────────────────────────────────────────────────────────────
+let isDancing = false;
+let danceTimeout = null;
+
+export function startDance(duration) {
     isDancing = true;
-    danceTimer = 0;
     if (danceTimeout) clearTimeout(danceTimeout);
     danceTimeout = setTimeout(() => { isDancing = false; }, 6000);
+    // Play the real recorded dance (.vrma) clip — loops for the hold duration,
+    // then restoreIdle brings her back to the natural idle.
+    playGesture('dance', duration || 6000);
 }
 
-// Applies an active gesture to the pose targets (called each frame inside loop).
-// p is the eased progress 0->1. Returns nothing; mutates pose. Joints are set
-// as a full chain (shoulder -> upperArm -> lowerArm -> hand) so elbows/forearms
-// and hands stay aligned instead of the model collapsing into a T-pose.
-function applyGesturePose(pose, p) {
-    if (!gesture) return;
-    const ease = p < 0.5 ? 2 * p * p : -1 + (4 - 2 * p) * p; // in-out
-    const hold = Math.min(p * 3, 1); // quick rise
-    const now = performance.now();
+// ────────────────────────────────────────────────────────────
+//  PUBLIC API — same exports as before so main.js needs no changes
+// ────────────────────────────────────────────────────────────
 
-    switch (gesture.name) {
-        // "Hi" wave: right arm raised, elbow bent, hand rotating side to side.
-        // Whole chain set together for a clean, anatomically sensible wave.
-        case 'wave':
-        case 'wave_hi':
-            pose.rightShoulder.x = 0.1;
-            pose.rightShoulder.y = -0.15;
-            pose.rightUpperArm.z = -1.6 + (gesture.name === 'wave_hi' ? 0.1 : 0);
-            pose.rightUpperArm.x = -1.5 * ease;
-            pose.rightLowerArm.z = -1.3 * ease;
-            pose.rightLowerArm.x = 0.25 * ease;
-            pose.rightHand.z = -0.55 + Math.sin(now / 120) * 0.2 * hold;
-            pose.rightHand.y = 0.15 * ease;
-            pose.head.x = 0.08 * ease;
-            pose.head.y = 0.12 * ease;
-            break;
-
-        // Both hands wave "hi" with clean elbow + forearm alignment.
-        case 'wave_both':
-            pose.leftShoulder.x = 0.1;
-            pose.rightShoulder.x = 0.1;
-            pose.rightUpperArm.z = -1.6 * ease;
-            pose.leftUpperArm.z = 1.6 * ease;
-            pose.rightLowerArm.z = -1.3 * ease;
-            pose.leftLowerArm.z = 1.3 * ease;
-            pose.leftUpperArm.x = -1.36 * ease;
-            pose.rightUpperArm.x = -1.36 * ease;
-            pose.rightHand.z = -0.5 + Math.sin(now / 130) * 0.18 * hold;
-            pose.leftHand.z = 0.5 + Math.sin(now / 130 + Math.PI) * 0.18 * hold;
-            pose.head.x = 0.08 * ease;
-            break;
-
-        // Arms spread wide (greeting / "aur kya?") with palms up.
-        case 'spread_arms':
-            pose.leftUpperArm.z = 1.55 * ease;
-            pose.rightUpperArm.z = -1.55 * ease;
-            pose.leftUpperArm.x = -1.2 * ease;
-            pose.rightUpperArm.x = -1.2 * ease;
-            pose.leftLowerArm.z = 0.4 * ease;
-            pose.rightLowerArm.z = -0.4 * ease;
-            pose.leftHand.y = 0.2 * ease;
-            pose.rightHand.y = 0.2 * ease;
-            pose.leftHand.z = 0.3;
-            pose.rightHand.z = -0.3;
-            pose.head.y = 0.15 * ease;
-            break;
-
-        // Happy bounce: slight knee-bend + arms up, like a little cheer.
-        case 'happy_bounce':
-            pose.rightUpperArm.z = -1.45 * ease;
-            pose.leftUpperArm.z = 1.45 * ease;
-            pose.rightUpperArm.x = -0.9 * ease;
-            pose.leftUpperArm.x = -0.9 * ease;
-            pose.rightLowerArm.z = -0.9 * ease;
-            pose.leftLowerArm.z = 0.9 * ease;
-            pose.leftUpperLeg.x = -0.1 * ease;
-            pose.rightUpperLeg.x = -0.1 * ease;
-            pose.leftFoot.x = 0.1 * ease;
-            pose.rightFoot.x = -0.1 * ease;
-            pose.head.x = -0.1 * ease;
-            break;
-
-        // Confident hands-on-hips "boss" stance.
-        case 'hands_hip':
-            pose.leftUpperArm.z = 1.55;
-            pose.rightUpperArm.z = -1.55;
-            pose.leftUpperArm.x = -1.3 * ease;
-            pose.rightUpperArm.x = -1.3 * ease;
-            pose.leftLowerArm.x = 0.9 * ease;
-            pose.rightLowerArm.x = 0.9 * ease;
-            pose.leftLowerArm.z = 0.4;
-            pose.rightLowerArm.z = -0.4;
-            pose.leftUpperLeg.x = 0.12 * ease;
-            pose.rightUpperLeg.x = -0.05 * ease;
-            pose.hips.z = 0.12 * ease;
-            break;
-
-        // Relaxed cross-another-leg lean (weight on one hip).
-        case 'lean_cool':
-            pose.hips.z = 0.16 * ease;
-            pose.hips.x = -0.03 * ease;
-            pose.spine.z = 0.1 * ease;
-            pose.leftUpperLeg.x = 0.18 * ease;
-            pose.rightUpperLeg.x = -0.18 * ease;
-            pose.head.z = 0.08 * ease;
-            break;
-
-        case 'nod':
-            pose.head.x = -0.32 * ease;
-            break;
-        case 'laugh':
-            pose.spine.z = 0.12 * ease;
-            pose.head.x = -0.12 * ease;
-            pose.spine.x = 0.06 * ease;
-            break;
-        case 'think':
-            pose.head.y = 0.32 * ease;
-            pose.leftUpperArm.x = -0.5 * ease;
-            pose.leftUpperArm.z = 1.6;
-            pose.leftLowerArm.x = 0.8 * ease;
-            pose.leftLowerArm.z = 0.3 * ease;
-            pose.leftHand.z = 0.45;
-            break;
-        case 'shrug':
-            pose.leftShoulder.x = 0.25 * ease;
-            pose.rightShoulder.x = 0.25 * ease;
-            pose.leftUpperArm.y = 0.35 * ease;
-            pose.rightUpperArm.y = -0.35 * ease;
-            break;
-        case 'tilt_head':
-            pose.head.z = 0.3 * ease;
-            pose.neck.z = 0.15 * ease;
-            break;
-        case 'surprise':
-            pose.head.x = -0.22 * ease;
-            pose.head.y = 0.12 * ease;
-            pose.leftUpperArm.z = 1.55;
-            pose.rightUpperArm.z = -1.55;
-            pose.leftLowerArm.x = 0.3 * ease;
-            pose.rightLowerArm.x = 0.3 * ease;
-            pose.leftHand.y = 0.3 * ease;
-            pose.rightHand.y = 0.3 * ease;
-            break;
-        case 'blow_kiss':
-            pose.leftUpperArm.x = -1.4 * ease;
-            pose.leftUpperArm.z = 1.7;
-            pose.leftLowerArm.x = 1.0 * ease;
-            pose.leftLowerArm.z = -0.6 * ease;
-            pose.leftHand.z = 0.5;
-            pose.head.z = 0.15 * ease;
-            break;
-        case 'bow':
-            pose.spine.x = 0.45 * ease;
-            pose.head.x = 0.3 * ease;
-            break;
-        case 'stretch':
-            pose.leftUpperArm.z = 1.8;
-            pose.rightUpperArm.z = -1.8;
-            pose.leftUpperArm.x = -0.7 * ease;
-            pose.rightUpperArm.x = -0.7 * ease;
-            pose.leftLowerArm.x = -0.4 * ease;
-            pose.rightLowerArm.x = -0.4 * ease;
-            pose.head.x = -0.25 * ease;
-            pose.head.y = -0.2 * ease;
-            break;
-        case 'point':
-            pose.leftUpperArm.x = -1.4 * ease;
-            pose.leftUpperArm.z = 1.5;
-            pose.leftLowerArm.x = 0.35 * ease;
-            pose.leftLowerArm.z = -0.5 * ease;
-            pose.leftHand.z = -0.5 * ease;
-            pose.head.y = 0.3 * ease;
-            break;
-        case 'cross_arms':
-            pose.leftUpperArm.z = 1.7;
-            pose.leftUpperArm.x = -1.15 * ease;
-            pose.leftLowerArm.x = 0.7 * ease;
-            pose.leftLowerArm.z = 0.25;
-            pose.rightUpperArm.z = -1.3;
-            pose.rightLowerArm.x = -0.7 * ease;
-            pose.rightLowerArm.z = -0.25;
-            break;
-        case 'flip_hair':
-            pose.head.z = 0.45 * ease;
-            pose.head.y = -0.35 * ease;
-            pose.leftUpperArm.z = 1.75;
-            pose.leftUpperArm.x = -0.6 * ease;
-            pose.leftLowerArm.x = 0.9 * ease;
-            break;
-        case 'salute':
-            pose.rightUpperArm.z = -1.5;
-            pose.rightUpperArm.x = -1.55 * ease;
-            pose.rightLowerArm.x = 0.4 * ease;
-            pose.rightHand.x = 0.35 * ease;
-            pose.rightHand.y = 0.2 * ease;
-            pose.head.x = 0.05;
-            break;
-    }
-}
-
-export function triggerMotion(name) {
+export function triggerMotion(name, duration) {
     if (!currentVRM || !currentVRM.humanoid) return;
-    if (name === 'dance') { startDance(); return; }
-    gesture = { name, start: performance.now() };
-    // Default emotion for every pose so her face matches the movement.
+    if (name === 'dance') { startDance(duration); return; }
+
+    // Play the real recorded mocap clip for this pose (persist for the duration)
+    playGesture(name, duration);
+
+    // Set facial expression to match
     const pose = POSES[name];
     if (pose && pose.emotion) setEmotionExpression(pose.emotion, 0.8);
-    else {
-        // Legacy: known gesture-expression pairs.
-        const h = currentVRM.humanoid;
-        switch (name) {
-            case 'laugh': case 'blow_kiss': setEmotionExpression('happy', 0.9); break;
-            case 'surprise': setEmotionExpression('surprised', 0.9); break;
-            default: break;
-        }
-    }
 }
 
-export function resetPose() { gesture = null; }
+// Debug hook (used by pose2-probe.cjs). Calls the REAL app module instance —
+// a dynamic import() would create a second Vite module whose mixer never starts.
+window.__gesture = (name, duration) => { triggerMotion(name, duration); };
+window.__loadedMocap = () => Object.keys(mocapClips);
+window.__resetGesture = () => { resetPose(); };
+window.__holdPose = (name) => { holdPose(name); };
+window.__clearHold = () => { clearHeldPose(); };
+
+export function resetPose() {
+    restoreIdle();
+}
 
 export function setMouth(v) {
     if (currentVRM && currentVRM.expressionManager) currentVRM.expressionManager.setValue('aa', v);
 }
+
+// Real mocap motions she fires randomly while speaking (in addition to the
+// setTalking only manages the talking head-bob. The body pose during speech is
+// driven by holdPose()/clearHeldPose() so ONE real-mocap motion spans the
+// entire spoken line (no random mid-speech gestures fighting the held pose).
+export function setTalking(v) {
+    isTalking = v;
+    if (v) {
+        startTalk();
+    } else {
+        stopTalk();
+        // Let an open-ended gesture keep running to its own timeout (don't cut
+        // a pose off mid-motion just because voice ended).
+        if (gestureAction && gestureTimeout) return;
+        if (gestureAction) { gestureAction.stop(); gestureAction.weight = 0; gestureAction = null; }
+        if (idleAction) idleAction.weight = 1;
+    }
+}
+
+export function isSpeaking() { return isTalking; }
+
 export function resetMouth() { setMouth(0); }
-export function zoomIn() { targetDistance = Math.max(0.7, targetDistance - 0.4); targetCameraY = 1.5; isZooming = true; zoomCooldown = 1.0; }
-export function zoomOut() { targetDistance = Math.min(4.0, targetDistance + 0.4); targetCameraY = 1.5; isZooming = true; zoomCooldown = 1.0; }
-export function setBackground(hex) { if (scene) scene.background = new THREE.Color(hex); }
+
+export function zoomIn() {
+    targetDistance = Math.max(0.7, targetDistance - 0.4);
+    targetCameraY = 1.5;
+    isZooming = true;
+    zoomCooldown = 1.0;
+}
+
+export function zoomOut() {
+    targetDistance = Math.min(4.0, targetDistance + 0.4);
+    targetCameraY = 1.5;
+    isZooming = true;
+    zoomCooldown = 1.0;
+}
+
+export function setBackground(hex) {
+    if (scene) {
+        scene.background = new THREE.Color(hex);
+        // Update fog color to match background for consistency
+        if (scene.fog) scene.fog.color = new THREE.Color(hex);
+    }
+}
+
 export function setBackgroundImage(url) {
-    new THREE.TextureLoader().load(url, (tex) => { tex.colorSpace = THREE.SRGBColorSpace; scene.background = tex; }, undefined, (e) => console.error('[VRM] Bg image fail:', e));
+    new THREE.TextureLoader().load(url, (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        scene.background = tex;
+        // Remove fog when showing an image so it doesn't wash out
+        scene.fog = null;
+    }, undefined, (e) => console.error('[VRM] Bg image fail:', e));
 }
 
 export function setExpressionFromText(text) {
     if (!currentVRM || !currentVRM.expressionManager) return;
     const exp = expressionState;
     const lower = text.toLowerCase();
-    
-    if (lower.includes('happy') || lower.includes('khush') || lower.includes('mast') || lower.includes('awesome') || lower.includes('amazing') || lower.includes('love') || lower.includes('wonderful') || lower.includes('glad') || lower.includes('😊') || lower.includes('😄')) {
+
+    if (lower.includes('happy') || lower.includes('khush') || lower.includes('mast') || lower.includes('awesome') || lower.includes('amazing') || lower.includes('love') || lower.includes('wonderful') || lower.includes('glad')) {
         exp.happy = Math.min(exp.happy + 0.7, 1.0);
     }
-    if (lower.includes('sad') || lower.includes('dukh') || lower.includes('udaas') || lower.includes('dukhi') || lower.includes('sorry') || lower.includes('disappointed') || lower.includes('😢') || lower.includes('😭')) {
+    if (lower.includes('sad') || lower.includes('dukh') || lower.includes('udaas') || lower.includes('dukhi') || lower.includes('sorry') || lower.includes('disappointed')) {
         exp.sad = Math.min(exp.sad + 0.7, 1.0);
     }
-    if (lower.includes('angry') || lower.includes('gussa') || lower.includes('irritated') || lower.includes('annoyed') || lower.includes('frustrated') || lower.includes('😠') || lower.includes('😡')) {
+    if (lower.includes('angry') || lower.includes('gussa') || lower.includes('irritated') || lower.includes('annoyed') || lower.includes('frustrated')) {
         exp.angry = Math.min(exp.angry + 0.7, 1.0);
     }
-    if (lower.includes('wow') || lower.includes('omg') || lower.includes('arre') || lower.includes('sach') || lower.includes('really') || lower.includes('shocked') || lower.includes('😲') || lower.includes('😮')) {
+    if (lower.includes('wow') || lower.includes('omg') || lower.includes('arre') || lower.includes('sach') || lower.includes('really') || lower.includes('shocked')) {
         exp.surprised = Math.min(exp.surprised + 0.7, 1.0);
     }
-    if (lower.includes('relaxed') || lower.includes('calm') || lower.includes('theek') || lower.includes('chill') || lower.includes('peaceful') || lower.includes('okay')) {
+    if (lower.includes('relaxed') || lower.includes('calm') || lower.includes('theek') || lower.includes('chill') || lower.includes('peaceful')) {
         exp.relaxed = Math.min(exp.relaxed + 0.5, 1.0);
     }
 }
 
-// Set facial expression directly from a detected emotion (used while talking)
-// so her face matches how she speaks (excited/sad/angry/funny...)
 export function setEmotionExpression(emotion, strength = 0.8) {
     if (!currentVRM || !currentVRM.expressionManager) return;
     const exp = expressionState;
 
-    if (emotion === 'excited') { exp.happy = Math.min(exp.happy + strength, 1); exp.surprised = Math.min(exp.surprised + strength * 0.5, 1); }
+    if (emotion === 'excited')      { exp.happy = Math.min(exp.happy + strength, 1); exp.surprised = Math.min(exp.surprised + strength * 0.5, 1); }
     else if (emotion === 'happy' || emotion === 'funny') { exp.happy = Math.min(exp.happy + strength, 1); }
-    else if (emotion === 'sad') { exp.sad = Math.min(exp.sad + strength, 1); }
-    else if (emotion === 'angry') { exp.angry = Math.min(exp.angry + strength, 1); }
+    else if (emotion === 'sad')     { exp.sad = Math.min(exp.sad + strength, 1); }
+    else if (emotion === 'angry')   { exp.angry = Math.min(exp.angry + strength, 1); }
     else if (emotion === 'surprised') { exp.surprised = Math.min(exp.surprised + strength, 1); }
     else if (emotion === 'calm' || emotion === 'neutral') { exp.relaxed = Math.min(exp.relaxed + strength * 0.5, 1); }
 }
 
-export { getPoseList, matchPose };
+export { getPoseList, matchPose, poseForEmotion };

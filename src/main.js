@@ -40,10 +40,14 @@ const modelSelect = document.getElementById('model-select');
 let speechRecog = null;
 let isListening = false;
 let isMenuOpen = false;
-let autoChatTimer = null;
-let lastAutoChat = 0;
 let lastUserMessage = 0;
 let thinkingMsg = null;
+// Idle autopilot: random pose ~every minute when you're quiet, plus an
+// occasional persona message she actually speaks (pose held for the line).
+let idleTimer = null;
+let idleCycle = 0;
+let lastAutoMsg = 0;
+let speechBusy = false;
 // Sarvam AI is the default voice engine (free Indian girl voice, requires no
 // local server). Edge/Kokoro/browser remain as offline fallbacks.
 let currentVoiceEngine = 'sarvam';
@@ -102,47 +106,90 @@ function applyExpressionAction(text) {
 
     vrmManager.setEmotionExpression(emotion);
 
+    const dur = Math.max(2000, text.length * 95);
     const l = text.toLowerCase();
-    if (l.includes('wave') || l.includes('hii') || l.includes('namaste') || l.includes('swagat')) vrmManager.triggerMotion('wave');
-    else if (l.includes('blush') || l.includes('shy') || l.includes('kiss')) vrmManager.triggerMotion('blow_kiss');
-    else if (l.includes('laugh') || l.includes('haha') || l.includes('giggle')) vrmManager.triggerMotion('laugh');
-    else if (l.includes('think') || l.includes('soch') || l.includes('muse')) vrmManager.triggerMotion('think');
-    else if (l.includes('sad') || l.includes('worried') || l.includes('dukhi')) vrmManager.triggerMotion('tilt_head');
-    else if (l.includes('dance') || l.includes('nach')) vrmManager.triggerMotion('dance');
-    else if (l.includes('point')) vrmManager.triggerMotion('point');
-    return emotion;
+    let pose = null;
+    if (l.includes('wave') || l.includes('hii') || l.includes('hello')) pose = 'wave_hi';
+    else if (l.includes('namaste') || l.includes('swagat') || l.includes('good to meet') || l.includes('thank')) pose = 'greeting';
+    else if (l.includes('blush') || l.includes('shy') || l.includes('kiss')) pose = 'blush';
+    else if (l.includes('laugh') || l.includes('haha') || l.includes('giggle') || l.includes('clap') || l.includes('cheer')) pose = 'clap';
+    else if (l.includes('think') || l.includes('soch') || l.includes('muse') || l.includes('hmm')) pose = 'think';
+    else if (l.includes('sad') || l.includes('worried') || l.includes('dukhi')) pose = 'sad';
+    else if (l.includes('dance') || l.includes('nach') || l.includes('party')) pose = 'dance';
+    else if (l.includes('peace')) pose = 'peace';
+    else if (l.includes('surprise') || l.includes('shocked') || l.includes('arre')) pose = 'surprised';
+    if (pose) vrmManager.triggerMotion(pose, dur);
+    return { emotion, pose };
 }
 
-// === AUTONOMOUS / PROACTIVE CHAT ===
-// Talks on her own when you've been quiet for ~5 minutes: stories, shayari,
-// quotes. Randomized 5-10 minute gap so she doesn't spam you.
-let lastProactive = 0;
-function scheduleAutoChat() {
-    if (autoChatTimer) clearTimeout(autoChatTimer);
-    const check = function() {
-        const idleMs = Date.now() - lastUserMessage;
-        const sinceLast = Date.now() - lastProactive;
-        if (idleMs >= 300000 && sinceLast >= 300000 + Math.random() * 300000) {
-            const msg = persona.randomProactiveMessage();
-            addMsg('Arohi', msg, 'msg-chloe');
-            lastProactive = Date.now();
-            lastUserMessage = Date.now();
-            speakWithExpression(msg, false);
-        }
-        scheduleAutoChat();
-    };
-    autoChatTimer = setTimeout(check, 30000);
+// === IDLE AUTOPILOT: RANDOM GESTURES + PERSONA MESSAGES ===
+// When you've gone quiet, Arohi keeps the world alive: she plays a random
+// real-mocap pose roughly every minute, and every few cycles she also drops a
+// persona line and SPEAKS it (the pose is held for the whole line). She never
+// interrupts herself mid-speech.
+const IDLE_POSES = [
+    'greeting', 'wave_hi', 'peace', 'clap', 'blush', 'think', 'look_around',
+    'jump', 'walk', 'dance', 'spin', 'squat', 'shoot', 'surprised', 'relax',
+    'sleepy', 'idle_listen', 'observe',
+];
+
+function scheduleIdleGestures() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(runIdleCycle, 60000);
+}
+
+function runIdleCycle() {
+    idleCycle++;
+    const quietMs = Date.now() - lastUserMessage;
+    const sinceAuto = Date.now() - lastAutoMsg;
+    scheduleIdleGestures();
+
+    // Don't act until the app is live and she isn't mid-sentence.
+    if (!appStarted || speechBusy || vrmManager.isSpeaking()) return;
+    // Only start once the user has been quiet for ~45s (so we never talk over
+    // them or right after they sent a message).
+    if (quietMs < 45000) return;
+
+    if (idleCycle % 3 === 0 && sinceAuto >= 150000) {
+        // Persona auto-message — she says it out loud with the pose held.
+        lastAutoMsg = Date.now();
+        lastUserMessage = Date.now();
+        const msg = persona.randomProactiveMessage();
+        addMsg('Arohi', msg, 'msg-chloe');
+        speakWithExpression(msg, false);
+    } else {
+        // Random silent pose for a few seconds, then back to idle.
+        const pose = IDLE_POSES[Math.floor(Math.random() * IDLE_POSES.length)];
+        vrmManager.triggerMotion(pose, 4200);
+    }
 }
 
 let elevenNoticeShown = false;
 function speakWithExpression(text, isReply) {
     const vrm = vrmManager.getVRM();
     if (!vrm) return;
-    const emotion = applyExpressionAction(text);
+    // Apply face + pick a matching real-mocap pose for the spoken line.
+    const r = applyExpressionAction(text);
+    const emotion = r.emotion;
+    const pose = r.pose || vrmManager.poseForEmotion(emotion);
+    vrmManager.setEmotionExpression(emotion, 0.8);
+
+    // Body only moves the moment the VOICE starts, and the pose is HELD until
+    // the last syllable — fixes the delay and the early "dropped to idle".
+    let started = false;
+    speechBusy = true;
     audio.fetchTTS(text, function(vol) {
         vrmManager.setMouth(vol);
         if (vizFill) vizFill.style.width = (vol * 100) + '%';
+        if (!started) {
+            started = true;
+            vrmManager.setTalking(true);
+            vrmManager.holdPose(pose);
+        }
     }).then(function() {
+        if (started) vrmManager.clearHeldPose();
+        vrmManager.setTalking(false);
+        speechBusy = false;
         if (!elevenNoticeShown) {
             const reason = audio.getElevenBlockedReason && audio.getElevenBlockedReason();
             if (reason) {
@@ -150,6 +197,10 @@ function speakWithExpression(text, isReply) {
                 addMsg('Voice', reason, 'msg-sys');
             }
         }
+    }).catch(function() {
+        if (started) vrmManager.clearHeldPose();
+        vrmManager.setTalking(false);
+        speechBusy = false;
     });
 }
 
@@ -179,25 +230,49 @@ async function processText(text) {
         thinkingMsg = addMsg('Arohi', replyText, 'msg-chloe');
         thinkingMsg.innerHTML = '<b>Arohi:</b> ' + escapeHtml(replyText) + '<div class="msg-time">' + time + '</div>';
 
-        r.motionTags.forEach(function(t) { vrmManager.triggerMotion(t); });
-        applyExpressionAction(r.expression || replyText);
-        // AI "body brain": use the LOCAL model to pick a fitting pose for the
-        // reply (falls back to keyword matching if the local model is off).
+        // Detect the emotion from the reply, set her face, and pick a pose so
+        // body + expression line up WITH the words as she speaks them.
+        const exRes = applyExpressionAction(r.expression || replyText);
+        const emotion = exRes.emotion;
+        vrmManager.setEmotionExpression(emotion, 0.8);
+
+        // Choose the pose that will HOLD for the whole spoken line: explicit
+        // motion tag > expression match > emotion pose.
+        const poseList = vrmManager.getPoseList();
+        let pose = exRes.pose || vrmManager.poseForEmotion(emotion);
+        const tag = (r.motionTags || []).find(function(t) { return t && t !== 'idle' && poseList[t]; });
+        if (tag) pose = tag;
+
+        // She only MOVES when the audio actually starts, and the pose is HELD
+        // until the voice ends — no delay, no early drop back to idle.
+        let started = false;
+        speechBusy = true;
         try {
-            const fallbackPose = vrmManager.matchPose(replyText);
-            const ap = await model.chooseAIPose(replyText, fallbackPose);
-            if (ap && ap.pose) {
-                vrmManager.triggerMotion(ap.pose);
-                if (ap.emotion) vrmManager.setEmotionExpression(ap.emotion, 0.8);
-            }
-        } catch (e) {
-            try { vrmManager.triggerMotion(vrmManager.matchPose(replyText)); } catch (e2) {}
+            // AI "body brain" refines the pose best-effort; if it lands before
+            // audio playback it simply upgrades the held pose.
+            model.chooseAIPose(replyText, vrmManager.matchPose(replyText)).then(function(ap) {
+                if (ap && ap.pose && poseList[ap.pose]) pose = ap.pose;
+                if (ap && ap.emotion) vrmManager.setEmotionExpression(ap.emotion, 0.8);
+            }).catch(function() {});
+            await audio.fetchTTS(r.cleanText, function(vol) {
+                vrmManager.setMouth(vol);
+                if (vizFill) vizFill.style.width = (vol * 100) + '%';
+                if (!started) {
+                    started = true;
+                    vrmManager.setTalking(true);
+                    vrmManager.holdPose(pose);
+                }
+            });
+            if (started) vrmManager.clearHeldPose();
+            vrmManager.setTalking(false);
+        } catch (err) {
+            vrmManager.setTalking(false);
+            hideThinking();
+            addMsg('Error', err.message || 'Unknown error', 'msg-sys');
         }
-        await audio.fetchTTS(r.cleanText, function(vol) {
-            vrmManager.setMouth(vol);
-            if (vizFill) vizFill.style.width = (vol * 100) + '%';
-        });
+        speechBusy = false;
     } catch (err) {
+        vrmManager.setTalking(false);
         hideThinking();
         addMsg('Error', err.message || 'Unknown error', 'msg-sys');
     }
@@ -226,7 +301,7 @@ function populateVoiceOptions(engine) {
         }
     });
     voiceSelectContainer.appendChild(select);
-    var profileDefault = engine === 'elevenlabs' ? 'eleven-arohi' : engine === 'sarvam' ? 'sarvam-kavya' : engine === 'edge' ? 'edge-arohi' : engine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
+    var profileDefault = engine === 'elevenlabs' ? 'eleven-arohi' : engine === 'sarvam' ? 'sarvam-priya' : engine === 'edge' ? 'edge-arohi' : engine === 'kokoro' ? 'kokoro-bella' : 'browser-neerja';
     if (audio.getAllVoiceProfiles()[profileDefault]) audio.setVoiceProfile(profileDefault);
     select.addEventListener('change', function(e) {
         audio.setVoiceProfile(e.target.value);
@@ -240,21 +315,35 @@ function buildPoseButtons() {
     var container = document.getElementById('pose-buttons');
     if (!container || !vrmManager.getPoseList) return;
     var poses = vrmManager.getPoseList();
+    // Group options by category so the three-dot menu is neatly arranged.
+    var order = ['Happy', 'Greetings', 'Thinking', 'Reactions', 'Moves'];
+    var groups = {};
     Object.entries(poses).forEach(function(e) {
-        var key = e[0];
-        var p = e[1];
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'menu-btn-small';
-        btn.style.cssText += 'padding:6px 10px;background:rgba(30,41,59,0.4);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;font-weight:600;font-size:11px;cursor:pointer;';
-        btn.textContent = p.label;
-        btn.title = p.desc;
-        btn.addEventListener('click', function() {
-            vrmManager.triggerMotion(key);
-            if (p.emotion) vrmManager.setEmotionExpression(p.emotion, 0.8);
-            addMsg('Arohi', 'Pose: ' + p.label, 'msg-sys');
+        var key = e[0], p = e[1];
+        var cat = (p.cat && order.indexOf(p.cat) !== -1) ? p.cat : 'Other';
+        (groups[cat] = groups[cat] || []).push({ key: key, p: p });
+    });
+    order.forEach(function(cat) {
+        if (!groups[cat]) return;
+        var h = document.createElement('div');
+        h.textContent = cat;
+        h.style.cssText += 'width:100%;margin:10px 2px 4px;font-size:10px;font-weight:800;letter-spacing:1px;color:var(--accent);opacity:0.85;';
+        container.appendChild(h);
+        groups[cat].forEach(function(item) {
+            var key = item.key, p = item.p;
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'menu-btn-small';
+            btn.style.cssText += 'padding:6px 10px;background:rgba(30,41,59,0.4);color:var(--text);border:1px solid var(--glass-border);border-radius:8px;font-weight:600;font-size:11px;cursor:pointer;';
+            btn.textContent = p.label;
+            btn.title = p.desc;
+            btn.addEventListener('click', function() {
+                vrmManager.triggerMotion(key);
+                if (p.emotion) vrmManager.setEmotionExpression(p.emotion, 0.8);
+                addMsg('Arohi', 'Pose: ' + p.label, 'msg-sys');
+            });
+            container.appendChild(btn);
         });
-        container.appendChild(btn);
     });
 }
 
@@ -265,7 +354,7 @@ async function initApp() {
     appStarted = true;
 
     try {
-        vrmManager.init(canvasEl, '/GIRL1.vrm');
+        vrmManager.init(canvasEl, 'GIRL1.vrm');
         setStatus('Initializing...', '');
     } catch (e) { addMsg('Error', e.message, 'msg-sys'); }
 
@@ -282,7 +371,7 @@ async function initApp() {
     setStatus('Ready', 'connected');
     avatarStatusText.textContent = 'Arohi Ready';
     speakWithExpression(g, false);
-    scheduleAutoChat();
+    scheduleIdleGestures();
 }
 
 // === EVENT LISTENERS ===
@@ -455,7 +544,7 @@ function setupEventListeners() {
     if (vrmModelSelect) {
         vrmModelSelect.addEventListener('change', function(e) {
             if (e.target.value === 'default') {
-                vrmManager.init(canvasEl, '/GIRL1.vrm');
+                vrmManager.init(canvasEl, 'GIRL1.vrm');
                 addMsg('System', 'Avatar: Arohi (Default)', 'msg-sys');
             } else if (e.target.value === 'upload') {
                 vrmUpload.click();
