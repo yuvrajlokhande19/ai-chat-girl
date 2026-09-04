@@ -387,13 +387,82 @@
 
         /* === RESPONSIVE === */
         @media (max-width: 768px) {
-            #chat-widget { width: calc(100vw - 24px); right: 12px; bottom: 12px; }
-            #input-bar { width: calc(100vw - 24px); bottom: 12px; border-radius: 16px; }
-            #dance-btn { bottom: 90px; right: 12px; padding: 10px 18px; font-size: 13px; }
-            #avatar-status { bottom: 90px; left: 12px; }
-            #zoom-controls { top: 12px; right: 12px; }
+            /* ---- Avatar stays the hero: UI collapses to edges ---- */
+            #canvas-container { z-index: 1; }
+            #wake-modal .content h1 { font-size: 38px; }
+            #wake-modal .content p { font-size: 14px; }
+            #wake-modal button { padding: 16px 44px; font-size: 16px; }
+
+            /* Compact menu + status */
             #three-dot-menu { top: 12px; left: 12px; }
-            #status-badge { top: 12px; right: 12px; }
+            #menu-btn { width: 44px; height: 44px; border-radius: 14px; }
+            #status-badge { top: 12px; right: 12px; font-size: 11px; padding: 7px 12px; }
+
+            /* Menu becomes a full-width bottom sheet with tidy sections */
+            #menu-dropdown {
+                position: fixed; top: auto; left: 8px; right: 8px; bottom: 8px;
+                width: auto; min-width: 0; max-height: 72vh;
+                border-radius: 20px; padding: 8px 12px 14px;
+                transform: translateY(110%);
+            }
+            #menu-dropdown.open { transform: translateY(0); }
+            #menu-dropdown .menu-section { padding: 10px 0; }
+            #menu-dropdown .menu-item { padding: 13px 10px; min-height: 48px; border-radius: 12px; }
+            #menu-dropdown .menu-item:hover { background: rgba(148, 163, 184, 0.12); }
+            #menu-dropdown select { max-width: 60%; }
+            #menu-dropdown .menu-btn-small { padding: 10px 14px; font-size: 13px; }
+
+            /* Input bar: full-width, above safe area */
+            #input-bar {
+                width: calc(100vw - 16px); bottom: calc(10px + env(safe-area-inset-bottom));
+                left: 8px; transform: none; border-radius: 22px;
+                padding: 6px; gap: 4px;
+            }
+            #input-bar #user-input { font-size: 15px; padding: 12px 14px; }
+            #input-bar #mic-btn, #input-bar #send-btn { width: 46px; height: 46px; flex-shrink: 0; }
+            #input-bar #viz-bar { width: 50px; }
+
+            /* Chat: collapsible bottom-sheet so the girl stays visible */
+            #chat-widget {
+                width: calc(100vw - 16px); right: 8px;
+                bottom: calc(78px + env(safe-area-inset-bottom)); gap: 8px;
+            }
+            #chat-widget.chat-expanded #chat-window {
+                max-height: 34vh; border-radius: 18px; padding: 12px;
+            }
+            #chat-widget.chat-collapsed { width: auto; left: 12px; right: auto; bottom: calc(76px + env(safe-area-inset-bottom)); }
+            #chat-widget.chat-collapsed #chat-window { display: none; }
+            #chat-widget.chat-collapsed #chat-header {
+                border-radius: 100px; padding: 9px 16px; max-width: 220px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            }
+            #chat-widget.chat-collapsed .chat-name { font-size: 12.5px; }
+            #chat-widget.chat-collapsed .chat-sub { display: none; }
+            #chat-widget.chat-collapsed #chat-clear-btn { display: none; }
+
+            /* While chat is expanded, hide edge controls so they don't cover the sheet or the avatar */
+            body:has(#chat-widget.chat-expanded) #dance-btn,
+            body:has(#chat-widget.chat-expanded) #avatar-status { display: none; }
+
+            /* Compact edge controls that don't cover the avatar's face */
+            #zoom-controls { top: 64px; right: 12px; gap: 6px; }
+            #zoom-controls .zoom-btn { width: 40px; height: 40px; font-size: 18px; }
+            #dance-btn { bottom: 88px; right: 8px; width: 46px; height: 46px; padding: 0; border-radius: 100px; justify-content: center; }
+            #dance-btn span { display: none; }
+            #dance-btn svg { width: 20px; height: 20px; }
+            /* Avatar status ring duplicates the top status badge — hidden on mobile for a clean stage */
+            #avatar-status { display: none; }
+        }
+        @media (max-width: 768px) and (max-height: 560px) {
+            /* Landscape phones: keep avatar visible, minimal chrome */
+            #chat-widget.chat-expanded #chat-window { max-height: 26vh; }
+            #dance-btn, #avatar-status { display: none; }
+            #menu-dropdown { max-height: 64vh; }
+        }
+        @media (max-width: 400px) {
+            #input-bar #viz-bar { display: none; }
+            #menu-dropdown select { max-width: 100%; }
+            #menu-dropdown .menu-item { flex-wrap: wrap; gap: 8px; }
         }
     </style>
 </head>

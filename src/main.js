@@ -12,6 +12,8 @@ const micBtn = document.getElementById('mic-btn');
 const sendBtn = document.getElementById('send-btn');
 const inputEl = document.getElementById('user-input');
 const chatWindow = document.getElementById('chat-window');
+const chatWidget = document.getElementById('chat-widget');
+const chatHeader = document.getElementById('chat-header');
 const chatClearBtn = document.getElementById('chat-clear-btn');
 const vizFill = document.getElementById('viz-fill');
 const zoomInBtn = document.getElementById('zoom-in');
@@ -397,11 +399,22 @@ function setupEventListeners() {
         if (e.key === 'Enter') { var t = inputEl.value.trim(); if (t) { inputEl.value = ''; processText(t); } }
     });
     if (chatClearBtn) {
-        chatClearBtn.addEventListener('click', function() {
+        chatClearBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
             chatWindow.innerHTML = '';
             hideThinking();
             thinkingMsg = null;
             addMsg('Arohi', '*winks* Baatein saaf kar di! Naya din, nayi shuruaat ✨ Kya baat karenge?', 'msg-chloe');
+        });
+    }
+    // Mobile: tapping the chat header collapses/expands it so the avatar stays visible.
+    if (chatHeader && chatWidget) {
+        chatHeader.addEventListener('click', function(e) {
+            if (e.target.closest('#chat-clear-btn')) return;
+            if (window.matchMedia('(max-width: 768px)').matches) {
+                const collapsed = chatWidget.classList.toggle('chat-collapsed');
+                chatWidget.classList.toggle('chat-expanded', !collapsed);
+            }
         });
     }
     zoomInBtn.addEventListener('click', function() { return vrmManager.zoomIn(); });
@@ -589,4 +602,28 @@ function setupEventListeners() {
 }
 
 // === BOOT ===
+// Mobile: collapse the chat to a pill on first load so the avatar is visible.
+// The first tap on the header expands it into the bottom sheet.
+(function applyMobileInitialState() {
+    function onWidth() {
+        if (!chatWidget || !chatHeader) return;
+        const isMobile = window.matchMedia('(max-width: 768px)').matches;
+        const alreadyTouched = sessionStorage.getItem('chat-touched');
+        if (isMobile && !alreadyTouched) {
+            chatWidget.classList.add('chat-collapsed');
+            chatWidget.classList.remove('chat-expanded');
+        } else {
+            chatWidget.classList.remove('chat-collapsed');
+            chatWidget.classList.add('chat-expanded');
+        }
+    }
+    onWidth();
+    window.addEventListener('resize', onWidth);
+    if (chatHeader && chatWidget) {
+        chatHeader.addEventListener('click', function() {
+            sessionStorage.setItem('chat-touched', '1');
+        });
+    }
+})();
+
 setupEventListeners();
